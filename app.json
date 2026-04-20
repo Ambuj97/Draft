@@ -1,0 +1,77 @@
+{
+  "expo": {
+    "name": "Draft",
+    "slug": "draft",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "draft",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#111318"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.draft.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Draft uses your location to track your pub crawl route and show nearby zones.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Draft tracks your location in the background to record your full pub crawl path.",
+        "NSCameraUsageDescription": "Draft uses the camera to scan beer labels and receipts.",
+        "NSPhotoLibraryUsageDescription": "Draft accesses your photos to scan beer labels and receipts."
+      }
+    },
+    "android": {
+      "package": "com.draft.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#111318"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "CAMERA"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Draft tracks your location to record pub crawl routes."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Draft uses the camera to scan beer labels and receipts."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Draft accesses your photos to scan beer labels and receipts."
+        }
+      ],
+      "expo-localization"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    }
+  }
+}
