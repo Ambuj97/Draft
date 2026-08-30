@@ -10,6 +10,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Divider } from "@/components/ui/Divider";
 import { Stat, StatRow } from "@/components/ui/Stat";
 import { RouteThumbnail } from "@/components/ui/RouteThumbnail";
+import { IconButton } from "@/components/ui/IconButton";
 import { useTheme } from "@/components/ui/ThemeContext";
 import { useAuth } from "@/services/auth";
 import { useCurrency } from "@/services/currency";
@@ -177,7 +178,37 @@ export default function HomeScreen() {
 
   return (
     <Screen scroll>
-      <Text variant="label" color="muted">
+      {/* Top bar: profile · notifications */}
+      <View style={styles.topBar}>
+        <Pressable
+          style={styles.profileChip}
+          onPress={() => router.navigate("/(tabs)/profile")}
+          hitSlop={6}
+        >
+          <View
+            style={[
+              styles.avatar,
+              { backgroundColor: colors.accentSoft, borderColor: colors.border },
+            ]}
+          >
+            <Text variant="bodyStrong" color="accent">
+              {(user?.handle ?? "D").charAt(0).toUpperCase()}
+            </Text>
+          </View>
+          <Text variant="bodyStrong" numberOfLines={1}>
+            @{user?.handle ?? "you"}
+          </Text>
+        </Pressable>
+
+        <IconButton
+          icon="bell-o"
+          variant="ghost"
+          onPress={() => router.navigate("/notifications")}
+          accessibilityLabel="Notifications"
+        />
+      </View>
+
+      <Text variant="label" color="muted" style={{ marginTop: space.lg }}>
         {new Date().toLocaleDateString(undefined, {
           weekday: "long",
           day: "numeric",
@@ -185,7 +216,7 @@ export default function HomeScreen() {
         })}
       </Text>
       <Text variant="title" style={{ marginTop: 2 }}>
-        {greeting()}, @{user?.handle ?? "you"}
+        {greeting()}
       </Text>
 
       {/* Quick actions */}
@@ -390,6 +421,25 @@ function relDate(ms: number): string {
 }
 
 const styles = StyleSheet.create({
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  profileChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    flexShrink: 1,
+  },
+  avatar: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   actions: {
     flexDirection: "row",
     gap: space.md,
