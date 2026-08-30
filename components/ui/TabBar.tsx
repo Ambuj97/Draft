@@ -16,9 +16,11 @@ const TAB_CONFIG: Record<
   profile: { icon: "user-o", label: "You" },
 };
 
+const BAR_HEIGHT = 58;
+
 /**
- * Flat editorial tab bar: foam surface, hairline top rule, a short amber
- * marker over the active tab. Always paper-styled for chrome consistency.
+ * Flat editorial tab bar pinned to the bottom edge: foam surface, hairline
+ * top rule, a short amber marker over the active tab. Always paper-styled.
  */
 export function DraftTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -32,105 +34,90 @@ export function DraftTabBar({ state, navigation }: BottomTabBarProps) {
         {
           backgroundColor: c.surface,
           borderTopColor: c.border,
-          paddingBottom: Math.max(insets.bottom, space.sm),
+          height: BAR_HEIGHT + insets.bottom,
+          paddingBottom: insets.bottom,
         },
       ]}
     >
-      <View style={styles.row}>
-        {state.routes.map((route, index) => {
-          const isFocused = state.index === index;
-          const cfg = TAB_CONFIG[route.name] ?? { icon: "circle-o" as const, label: route.name };
+      {state.routes.map((route, index) => {
+        const isFocused = state.index === index;
+        const cfg =
+          TAB_CONFIG[route.name] ?? { icon: "circle-o" as const, label: route.name };
+        const tint = isFocused ? c.accent : c.textMuted;
 
-          const onPress = () => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-            const event = navigation.emit({
-              type: "tabPress",
-              target: route.key,
-              canPreventDefault: true,
-            });
-            if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
-            }
-          };
+        const onPress = () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          const event = navigation.emit({
+            type: "tabPress",
+            target: route.key,
+            canPreventDefault: true,
+          });
+          if (!isFocused && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
 
-          return (
-            <Pressable
-              key={route.key}
-              accessibilityRole="button"
-              accessibilityState={isFocused ? { selected: true } : {}}
-              onPress={onPress}
-              style={({ pressed }) => [
-                styles.tab,
-                pressed ? { opacity: 0.6, transform: [{ scale: 0.94 }] } : null,
+        return (
+          <Pressable
+            key={route.key}
+            accessibilityRole="button"
+            accessibilityState={isFocused ? { selected: true } : {}}
+            onPress={onPress}
+            style={({ pressed }) => [
+              styles.tab,
+              pressed ? { opacity: 0.55 } : null,
+            ]}
+          >
+            <View
+              style={[
+                styles.marker,
+                { backgroundColor: isFocused ? c.accent : "transparent" },
+              ]}
+            />
+            <FontAwesome name={cfg.icon} size={19} color={tint} />
+            <RNText
+              numberOfLines={1}
+              style={[
+                styles.label,
+                { color: tint, fontFamily: isFocused ? fonts.sansBold : fonts.sansMedium },
               ]}
             >
-              <View
-                style={[
-                  styles.marker,
-                  { backgroundColor: isFocused ? c.accent : "transparent" },
-                ]}
-              />
-              <FontAwesome
-                name={cfg.icon}
-                size={19}
-                color={isFocused ? c.accent : c.textMuted}
-              />
-              <RNLabel focused={isFocused} color={isFocused ? c.accent : c.textMuted}>
-                {cfg.label}
-              </RNLabel>
-            </Pressable>
-          );
-        })}
-      </View>
+              {cfg.label.toUpperCase()}
+            </RNText>
+          </Pressable>
+        );
+      })}
     </View>
-  );
-}
-
-function RNLabel({
-  children,
-  focused,
-  color,
-}: {
-  children: string;
-  focused: boolean;
-  color: string;
-}) {
-  return (
-    <RNText
-      numberOfLines={1}
-      style={{
-        marginTop: 4,
-        fontFamily: focused ? fonts.sansBold : fonts.sansMedium,
-        fontSize: 10,
-        letterSpacing: 0.5,
-        color,
-      }}
-    >
-      {children.toUpperCase()}
-    </RNText>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
-    width: "100%",
-    alignSelf: "stretch",
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: "row",
+    alignItems: "flex-start",
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: space.sm,
-  },
-  row: {
-    flexDirection: "row",
-    width: "100%",
   },
   tab: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 4,
+    justifyContent: "flex-start",
+    paddingHorizontal: 4,
   },
   marker: {
     width: 18,
     height: 2,
     borderRadius: 1,
     marginBottom: 6,
+  },
+  label: {
+    marginTop: 4,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textAlign: "center",
   },
 });
