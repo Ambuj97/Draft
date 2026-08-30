@@ -1,34 +1,26 @@
 import React, { useState, useCallback } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  Alert,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { useFocusEffect } from "expo-router";
-import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { GradientBackground } from "@/components/ui/GradientBackground";
-import { GlassCard } from "@/components/ui/GlassCard";
+import * as Location from "expo-location";
+import { getLocales } from "expo-localization";
+import { desc } from "drizzle-orm";
+import { Screen } from "@/components/ui/Screen";
+import { Text } from "@/components/ui/Text";
 import { Button } from "@/components/ui/Button";
 import { ThreadCard } from "@/components/ThreadCard";
 import { PostComposer } from "@/components/PostComposer";
 import { useDatabase } from "@/db/provider";
 import { threads, Thread } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
-import { getLocales } from "expo-localization";
-import * as Location from "expo-location";
-import Colors from "@/constants/Colors";
+import { useTheme } from "@/components/ui/ThemeContext";
+import { space, radius, fonts } from "@/constants/theme";
 
 type FeedTab = "zone" | "live" | "price" | "global";
 
-const FEED_TABS: { key: FeedTab; label: string; emoji: string }[] = [
-  { key: "zone", label: "Zone", emoji: "📍" },
-  { key: "live", label: "Live", emoji: "⚡" },
-  { key: "price", label: "Prices", emoji: "💰" },
-  { key: "global", label: "Global", emoji: "🌍" },
+const FEED_TABS: { key: FeedTab; label: string }[] = [
+  { key: "zone", label: "Zone" },
+  { key: "live", label: "Live" },
+  { key: "price", label: "Prices" },
+  { key: "global", label: "Global" },
 ];
 
 function getDemoThreads(city: string, currencySymbol: string): Omit<Thread, "id">[] {
@@ -102,13 +94,9 @@ function getDemoThreads(city: string, currencySymbol: string): Omit<Thread, "id"
   ];
 }
 
-/**
- * Taproom Screen — "The Social Layer"
- * Reddit-style feed with zone boards, live sessions, price watch, and global threads.
- */
 export default function TaproomScreen() {
-  const insets = useSafeAreaInsets();
   const { db, isReady } = useDatabase();
+  const { colors } = useTheme();
 
   const [activeTab, setActiveTab] = useState<FeedTab>("zone");
   const [threadList, setThreadList] = useState<Thread[]>([]);
@@ -117,23 +105,16 @@ export default function TaproomScreen() {
   const [localCity, setLocalCity] = useState("Local Zone");
   const [currencySymbol] = useState(() => getLocales()[0]?.currencySymbol || "£");
 
-  // Load threads on focus
   useFocusEffect(
     useCallback(() => {
-      if (isReady) {
-        loadThreads();
-      }
+      if (isReady) loadThreads();
     }, [isReady, activeTab])
   );
 
   const loadThreads = async () => {
     try {
-      let result = await db
-        .select()
-        .from(threads)
-        .orderBy(desc(threads.createdAt));
+      let result = await db.select().from(threads).orderBy(desc(threads.createdAt));
 
-      // Seed with demo data if empty
       if (result.length === 0 && !seeded) {
         let city = "London";
         try {
@@ -153,18 +134,13 @@ export default function TaproomScreen() {
           console.warn("Location error", e);
         }
 
-        const seedThreads = getDemoThreads(city, currencySymbol);
-        for (const seed of seedThreads) {
+        for (const seed of getDemoThreads(city, currencySymbol)) {
           await db.insert(threads).values(seed);
         }
         setSeeded(true);
-        result = await db
-          .select()
-          .from(threads)
-          .orderBy(desc(threads.createdAt));
+        result = await db.select().from(threads).orderBy(desc(threads.createdAt));
       }
 
-      // Filter by tab
       const filtered = result.filter((t) => {
         switch (activeTab) {
           case "zone":
@@ -174,7 +150,7 @@ export default function TaproomScreen() {
           case "price":
             return (
               t.title.toLowerCase().includes("price") ||
-              t.title.toLowerCase().includes(currencySymbol) ||
+              t.title.includes(currencySymbol) ||
               t.title.includes("💰")
             );
           case "global":
@@ -207,164 +183,91 @@ export default function TaproomScreen() {
       loadThreads();
     } catch (err) {
       console.error("Failed to create thread:", err);
-      Alert.alert("Error", "Failed to create post.");
+      Alert.alert("Error", "Couldn't post that.");
     }
   };
 
   return (
-    <GradientBackground>
-      <View style={[styles.container, { paddingTop: insets.top + 16 }]}>
-        {/* Header */}
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.title}>Taproom</Text>
-            <Text style={styles.subtitle}>The social layer</Text>
-          </View>
-          <Button
-            title="+ Post"
-            onPress={() => setShowComposer(true)}
-            variant="secondary"
-            size="sm"
-          />
-        </View>
-
-        {/* Feed tabs */}
-        <View style={styles.tabRow}>
-          {FEED_TABS.map((tab) => (
+    <Screen
+      title="Taproom"
+      subtitle={activeTab === "zone" ? localCity : "The local feed"}
+      headerRight={
+        <Button title="Post" icon="pencil" size="sm" onPress={() => setShowComposer(true)} />
+      }
+    >
+      <View style={[styles.segment, { borderColor: colors.border }]}>
+        {FEED_TABS.map((tab) => {
+          const active = activeTab === tab.key;
+          return (
             <Pressable
               key={tab.key}
-              style={[
-                styles.feedTab,
-                activeTab === tab.key && styles.feedTabActive,
-              ]}
               onPress={() => setActiveTab(tab.key)}
+              style={[
+                styles.segmentItem,
+                active && { backgroundColor: colors.accent },
+              ]}
             >
-              <Text style={styles.feedTabEmoji}>{tab.emoji}</Text>
               <Text
-                style={[
-                  styles.feedTabLabel,
-                  activeTab === tab.key && styles.feedTabLabelActive,
-                ]}
+                style={{
+                  fontFamily: active ? fonts.sansBold : fonts.sansMedium,
+                  fontSize: 12.5,
+                  letterSpacing: 0.3,
+                  color: active ? colors.accentText : colors.textSecondary,
+                }}
               >
                 {tab.label}
               </Text>
             </Pressable>
-          ))}
-        </View>
-
-        {/* Thread feed */}
-        <ScrollView
-          style={styles.feed}
-          contentContainerStyle={styles.feedContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {threadList.length === 0 ? (
-            <View style={styles.emptyFeed}>
-              <Text style={styles.emptyEmoji}>
-                {FEED_TABS.find((t) => t.key === activeTab)?.emoji}
-              </Text>
-              <Text style={styles.emptyTitle}>No posts yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Be the first to post in{" "}
-                {FEED_TABS.find((t) => t.key === activeTab)?.label}
-              </Text>
-            </View>
-          ) : (
-            threadList.map((thread) => (
-              <ThreadCard key={thread.id} thread={thread} />
-            ))
-          )}
-        </ScrollView>
+          );
+        })}
       </View>
 
-      {/* Post composer */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingTop: space.lg, paddingBottom: 120, gap: space.sm }}
+        showsVerticalScrollIndicator={false}
+      >
+        {threadList.length === 0 ? (
+          <View style={styles.emptyFeed}>
+            <Text variant="heading" align="center">
+              Quiet in here
+            </Text>
+            <Text variant="body" color="secondary" align="center" style={{ marginTop: space.xs }}>
+              Be the first to post in {FEED_TABS.find((t) => t.key === activeTab)?.label}.
+            </Text>
+          </View>
+        ) : (
+          threadList.map((thread) => <ThreadCard key={thread.id} thread={thread} />)
+        )}
+      </ScrollView>
+
       <PostComposer
         visible={showComposer}
         zoneId={activeTab === "zone" ? localCity : undefined}
         onSubmit={handlePost}
         onCancel={() => setShowComposer(false)}
       />
-    </GradientBackground>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  segment: {
+    flexDirection: "row",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: 3,
+    gap: 3,
+  },
+  segmentItem: {
     flex: 1,
-    paddingHorizontal: 20,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: Colors.text,
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginTop: 1,
-    letterSpacing: 0.3,
-  },
-  tabRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 16,
-  },
-  feedTab: {
-    flex: 1,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-  },
-  feedTabActive: {
-    backgroundColor: "rgba(179, 98, 0, 0.15)",
-    borderColor: Colors.primaryGlow,
-  },
-  feedTabEmoji: {
-    fontSize: 14,
-  },
-  feedTabLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Colors.textMuted,
-  },
-  feedTabLabelActive: {
-    color: Colors.primaryLight,
-  },
-  feed: {
-    flex: 1,
-  },
-  feedContent: {
-    paddingBottom: 90,
+    paddingVertical: 9,
+    borderRadius: radius.sm,
   },
   emptyFeed: {
+    paddingTop: 72,
     alignItems: "center",
-    paddingTop: 60,
-  },
-  emptyEmoji: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.text,
-    marginBottom: 4,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
   },
 });

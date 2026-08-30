@@ -1,245 +1,141 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, Alert, ScrollView } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GradientBackground } from "@/components/ui/GradientBackground";
-import { GlassCard } from "@/components/ui/GlassCard";
+import React, { useCallback, useState } from "react";
+import { View, StyleSheet, Alert } from "react-native";
+import { useFocusEffect } from "expo-router";
+import { Screen } from "@/components/ui/Screen";
+import { Text } from "@/components/ui/Text";
+import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Divider } from "@/components/ui/Divider";
+import { Stat, StatRow } from "@/components/ui/Stat";
 import { useAuth } from "@/services/auth";
 import { useDatabase } from "@/db/provider";
-import { sessions } from "@/db/schema";
+import { sessions, Session } from "@/db/schema";
 import { desc } from "drizzle-orm";
-import Colors from "@/constants/Colors";
+import { space } from "@/constants/theme";
+import { formatDistance } from "@/services/location";
 
 export default function ProfileScreen() {
-  const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
   const { db, isReady } = useDatabase();
-  const [history, setHistory] = useState<any[]>([]);
-  
-  useEffect(() => {
-    if (isReady) {
-      const fetchHistory = async () => {
-        try {
-          const results = await db.select().from(sessions).orderBy(desc(sessions.startedAt));
-          setHistory(results);
-        } catch (err) {
-          console.error("Failed to load history", err);
-        }
-      };
-      
-      fetchHistory();
-    }
-  }, [isReady]);
+  const [history, setHistory] = useState<Session[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isReady) return;
+      db.select()
+        .from(sessions)
+        .orderBy(desc(sessions.startedAt))
+        .then(setHistory)
+        .catch((err) => console.error("Failed to load history", err));
+    }, [isReady])
+  );
 
   const handleSignOut = () => {
-    Alert.alert("Sign out", "Are you sure you want to sign out?", [
+    Alert.alert("Sign out", "You'll need to sign back in to sync.", [
       { text: "Cancel", style: "cancel" },
-      { text: "Sign Out", style: "destructive", onPress: () => signOut() },
+      { text: "Sign out", style: "destructive", onPress: () => signOut() },
     ]);
   };
 
+  const totalDistance = history.reduce((sum, s) => sum + (s.distance || 0), 0);
+  const finished = history.filter((s) => s.endedAt);
+
   return (
-    <GradientBackground>
-      <ScrollView
-        style={[styles.container, { paddingTop: insets.top + 16 }]}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.title}>Profile</Text>
-            <Text style={styles.subtitle}>{user?.email}</Text>
-          </View>
+    <Screen scroll title="You" subtitle={user?.email ?? undefined}>
+      <Card style={styles.identity}>
+        <View style={styles.avatar}>
+          <Text variant="title">
+            {(user?.handle ?? "D").charAt(0).toUpperCase()}
+          </Text>
         </View>
+        <Text variant="heading" style={{ marginTop: space.md }}>
+          @{user?.handle ?? "you"}
+        </Text>
+        <Text variant="caption" color="muted" style={{ marginTop: 2 }}>
+          Member since 2026
+        </Text>
 
-        <GlassCard style={styles.profileCard} glow>
-          <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarEmoji}>😎</Text>
-          </View>
-          <Text style={styles.handle}>@{user?.handle}</Text>
-          <Text style={styles.memberSince}>Member since 2026</Text>
-        </GlassCard>
+        <Divider spacing="lg" />
 
-        <GlassCard style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Account Setup</Text>
-          <View style={styles.settingRow}>
-            <Text style={styles.settingText}>Centralized Database</Text>
-            <Text style={styles.settingStatus}>Connected</Text>
-          </View>
-          <View style={[styles.settingRow, { borderBottomWidth: 0 }]}>
-            <Text style={styles.settingText}>Data Storage</Text>
-            <Text style={styles.settingStatus}>Local SQLite</Text>
-          </View>
-        </GlassCard>
+        <StatRow>
+          <Stat value={finished.length} label="Crawls" align="center" />
+          <Stat
+            value={formatDistance(totalDistance)}
+            label="On foot"
+            align="center"
+          />
+          <Stat value={history.length} label="Logged" align="center" />
+        </StatRow>
+      </Card>
 
-        {/* Previous Crawl History */}
-        <View style={styles.historyHeader}>
-          <Text style={styles.sectionTitle}>Past Crawls</Text>
-          <Text style={styles.historyMeta}>{history.length} total</Text>
-        </View>
+      <Text variant="label" color="muted" style={styles.sectionLabel}>
+        PAST CRAWLS
+      </Text>
 
-        {history.length === 0 ? (
-          <GlassCard style={styles.emptyHistory}>
-            <Text style={styles.emptyText}>You haven't tracked any pub crawls yet.</Text>
-          </GlassCard>
-        ) : (
-          history.map((session: any) => (
-            <GlassCard key={session.id} style={styles.historyCard}>
-              <View style={styles.historyLeft}>
-                <Text style={styles.historyTitle}>{session.name}</Text>
-                <Text style={styles.historyDate}>
-                  {new Date(session.startedAt).toLocaleDateString()}
+      {history.length === 0 ? (
+        <Card>
+          <Text variant="body" color="secondary">
+            No crawls yet. Start one from the Crawl tab and it'll show up here.
+          </Text>
+        </Card>
+      ) : (
+        <View style={{ gap: space.sm }}>
+          {history.map((s) => (
+            <Card key={s.id} style={styles.row}>
+              <View style={{ flex: 1 }}>
+                <Text variant="bodyStrong" numberOfLines={1}>
+                  {s.name}
+                </Text>
+                <Text variant="caption" color="muted" style={{ marginTop: 2 }}>
+                  {new Date(s.startedAt).toLocaleDateString(undefined, {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                  })}
+                  {s.endedAt ? "" : " · unfinished"}
                 </Text>
               </View>
-              <View style={styles.historyRight}>
-                <Text style={styles.historyDistance}>
-                  {session.distance < 1000 
-                    ? `${Math.round(session.distance)}m` 
-                    : `${(session.distance / 1000).toFixed(1)}km`}
-                </Text>
-              </View>
-            </GlassCard>
-          ))
-        )}
+              <Text variant="mono" color="accent">
+                {formatDistance(s.distance || 0)}
+              </Text>
+            </Card>
+          ))}
+        </View>
+      )}
 
-        <Button
-          title="Sign Out"
-          onPress={handleSignOut}
-          variant="secondary"
-          style={styles.signOutBtn}
-        />
-      </ScrollView>
-    </GradientBackground>
+      <Button
+        title="Sign out"
+        onPress={handleSignOut}
+        variant="secondary"
+        fullWidth
+        style={{ marginTop: space.xl }}
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  content: {
-    paddingBottom: 100,
-  },
-  headerRow: {
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: Colors.text,
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  profileCard: {
+  identity: {
     alignItems: "center",
-    marginBottom: 20,
-    paddingVertical: 32,
+    paddingVertical: space.xl,
   },
-  avatarPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "rgba(179, 98, 0, 0.15)",
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.primaryGlow,
+    backgroundColor: "rgba(194,65,12,0.10)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(27,23,18,0.14)",
   },
-  avatarEmoji: {
-    fontSize: 36,
+  sectionLabel: {
+    marginTop: space.xl,
+    marginBottom: space.md,
   },
-  handle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: Colors.primaryLight,
-  },
-  memberSince: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginTop: 4,
-  },
-  sectionCard: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: Colors.text,
-    marginBottom: 16,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  settingRow: {
+  row: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.glassBorder,
-  },
-  settingText: {
-    fontSize: 15,
-    color: Colors.textSecondary,
-  },
-  settingStatus: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.primaryLight,
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: 8,
-    marginTop: 12,
-  },
-  historyMeta: {
-    color: Colors.textMuted,
-    fontSize: 13,
-  },
-  emptyHistory: {
-    padding: 20,
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  emptyText: {
-    color: Colors.textMuted,
-    fontSize: 14,
-  },
-  historyCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    paddingVertical: 16,
-  },
-  historyLeft: {},
-  historyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.text,
-    marginBottom: 4,
-  },
-  historyDate: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  historyRight: {
-    paddingLeft: 16,
-    borderLeftWidth: 1,
-    borderLeftColor: Colors.glassBorder,
-  },
-  historyDistance: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: Colors.primaryLight,
-  },
-  signOutBtn: {
-    marginTop: 12,
+    alignItems: "center",
+    gap: space.md,
   },
 });

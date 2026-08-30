@@ -1,28 +1,44 @@
 import React from "react";
 import {
-  View,
   Pressable,
-  Text,
+  View,
   StyleSheet,
+  ActivityIndicator,
   ViewStyle,
-  TextStyle,
+  StyleProp,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import Colors from "@/constants/Colors";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { radius, space, fonts } from "@/constants/theme";
+import { useTheme } from "./ThemeContext";
+import { Text } from "./Text";
+
+type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Size = "sm" | "md" | "lg";
 
 interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: "primary" | "secondary" | "ghost";
-  size?: "sm" | "md" | "lg";
+  variant?: Variant;
+  size?: Size;
   disabled?: boolean;
-  style?: ViewStyle;
+  loading?: boolean;
+  icon?: React.ComponentProps<typeof FontAwesome>["name"];
+  fullWidth?: boolean;
+  style?: StyleProp<ViewStyle>;
 }
 
+const SIZES: Record<Size, { padV: number; padH: number; font: number; min: number; gap: number }> = {
+  sm: { padV: 8, padH: 14, font: 13, min: 38, gap: 6 },
+  md: { padV: 13, padH: 20, font: 15, min: 48, gap: 8 },
+  lg: { padV: 16, padH: 24, font: 16, min: 56, gap: 10 },
+};
+
 /**
- * Draft button with amber gradient (primary), glass outline (secondary),
- * or transparent (ghost). Press triggers haptic feedback.
+ * primary  — solid amber, ink-on-amber label
+ * secondary — ink hairline outline, transparent
+ * ghost    — text only
+ * danger   — solid danger
  */
 export function Button({
   title,
@@ -30,122 +46,91 @@ export function Button({
   variant = "primary",
   size = "md",
   disabled = false,
+  loading = false,
+  icon,
+  fullWidth = false,
   style,
 }: ButtonProps) {
+  const { colors } = useTheme();
+  const s = SIZES[size];
+  const isDisabled = disabled || loading;
+
+  const bg =
+    variant === "primary"
+      ? colors.accent
+      : variant === "danger"
+        ? colors.danger
+        : "transparent";
+
+  const borderColor =
+    variant === "secondary" ? colors.textPrimary : "transparent";
+
+  const labelColor =
+    variant === "primary" || variant === "danger"
+      ? colors.accentText
+      : variant === "ghost"
+        ? colors.textSecondary
+        : colors.textPrimary;
+
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (isDisabled) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onPress();
   };
-
-  const sizeStyles = SIZE_MAP[size];
-
-  if (variant === "primary") {
-    return (
-      <Pressable
-        onPress={handlePress}
-        disabled={disabled}
-        style={({ pressed }) => [
-          styles.base,
-          sizeStyles.button,
-          pressed && styles.pressed,
-          disabled && styles.disabled,
-          style,
-        ]}
-      >
-        <LinearGradient
-          colors={[Colors.primaryLight, Colors.primary, Colors.primaryDark]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFill, styles.gradient]}
-        />
-        <View style={styles.buttonTopBorderBevel} />
-        <Text style={[styles.textPrimary, sizeStyles.text]}>{title}</Text>
-      </Pressable>
-    );
-  }
 
   return (
     <Pressable
       onPress={handlePress}
-      disabled={disabled}
+      disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
-        sizeStyles.button,
-        variant === "secondary" ? styles.secondary : styles.ghost,
-        pressed && styles.pressed,
-        disabled && styles.disabled,
+        {
+          backgroundColor: bg,
+          borderColor,
+          borderWidth: variant === "secondary" ? 1.5 : 0,
+          borderRadius: radius.md,
+          paddingVertical: s.padV,
+          paddingHorizontal: s.padH,
+          minHeight: s.min,
+          alignSelf: fullWidth ? "stretch" : "flex-start",
+        },
+        pressed && !isDisabled ? styles.pressed : null,
+        isDisabled ? { opacity: 0.45 } : null,
         style,
       ]}
     >
-      <Text
-        style={[
-          variant === "secondary" ? styles.textSecondary : styles.textGhost,
-          sizeStyles.text,
-        ]}
-      >
-        {title}
-      </Text>
+      <View style={[styles.row, { gap: s.gap }]}>
+        {loading ? (
+          <ActivityIndicator size="small" color={labelColor} />
+        ) : icon ? (
+          <FontAwesome name={icon} size={s.font + 1} color={labelColor} />
+        ) : null}
+        <Text
+          style={{
+            color: labelColor,
+            fontFamily: fonts.sansBold,
+            fontSize: s.font,
+            letterSpacing: 0.2,
+          }}
+        >
+          {title}
+        </Text>
+      </View>
     </Pressable>
   );
 }
-
-const SIZE_MAP: Record<string, { button: ViewStyle; text: TextStyle }> = {
-  sm: {
-    button: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 24, minHeight: 40 },
-    text: { fontSize: 13 },
-  },
-  md: {
-    button: { paddingVertical: 14, paddingHorizontal: 24, borderRadius: 999, minHeight: 48 },
-    text: { fontSize: 16 },
-  },
-  lg: {
-    button: { paddingVertical: 18, paddingHorizontal: 32, borderRadius: 999, minHeight: 56 },
-    text: { fontSize: 17 },
-  },
-};
 
 const styles = StyleSheet.create({
   base: {
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
-    position: "relative",
   },
-  gradient: {
-    borderRadius: 999,
-  },
-  buttonTopBorderBevel: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-  },
-  secondary: {
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    backgroundColor: Colors.glass,
-  },
-  ghost: {
-    backgroundColor: "transparent",
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   pressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.95 }],
-  },
-  disabled: {
-    opacity: 0.4,
-  },
-  textPrimary: {
-    color: Colors.text,
-    fontWeight: "800", // Thicker boldness for UI punch
-    letterSpacing: 0.3,
-  },
-  textSecondary: {
-    color: Colors.text, // Better contrast than strict primary light
-    fontWeight: "700",
-  },
-  textGhost: {
-    color: Colors.textSecondary,
-    fontWeight: "600",
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
   },
 });

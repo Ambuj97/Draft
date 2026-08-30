@@ -1,16 +1,18 @@
 import React, { useState } from "react";
 import {
   View,
-  Text,
   StyleSheet,
   Modal,
-  TextInput,
+  Pressable,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { BlurView } from "expo-blur";
+import { Text } from "@/components/ui/Text";
+import { Field } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
-import Colors from "@/constants/Colors";
+import { Tag } from "@/components/ui/Tag";
+import { useTheme } from "@/components/ui/ThemeContext";
+import { space, radius } from "@/constants/theme";
 
 interface PostComposerProps {
   visible: boolean;
@@ -19,97 +21,63 @@ interface PostComposerProps {
   onCancel: () => void;
 }
 
-/**
- * Modal composer for creating new threads in the Taproom.
- */
-export function PostComposer({
-  visible,
-  zoneId,
-  onSubmit,
-  onCancel,
-}: PostComposerProps) {
+/** Bottom-sheet composer for a new Taproom thread. */
+export function PostComposer({ visible, zoneId, onSubmit, onCancel }: PostComposerProps) {
+  const { colors } = useTheme();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
 
-  const handleSubmit = () => {
-    if (!title.trim()) return;
-    onSubmit(title.trim(), body.trim());
+  const reset = () => {
     setTitle("");
     setBody("");
   };
 
-  const handleCancel = () => {
-    setTitle("");
-    setBody("");
+  const submit = () => {
+    if (!title.trim()) return;
+    onSubmit(title.trim(), body.trim());
+    reset();
+  };
+
+  const cancel = () => {
+    reset();
     onCancel();
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={handleCancel}
-    >
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={cancel}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.overlay}
       >
-        <View style={styles.sheet}>
-          <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-          <View style={styles.content}>
-            <View style={styles.handle} />
+        <Pressable style={styles.scrim} onPress={cancel} />
+        <View style={[styles.sheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+          <View style={[styles.grip, { backgroundColor: colors.border }]} />
 
-            <View style={styles.headerRow}>
-              <Text style={styles.title}>New Post</Text>
-              {zoneId && (
-                <View style={styles.zoneBadge}>
-                  <Text style={styles.zoneText}>📍 {zoneId}</Text>
-                </View>
-              )}
-            </View>
+          <View style={styles.header}>
+            <Text variant="heading">New post</Text>
+            {zoneId ? <Tag label={zoneId} icon="map-marker" tone="accent" /> : null}
+          </View>
 
-            <TextInput
+          <View style={{ gap: space.md }}>
+            <Field
+              placeholder="What's on your mind?"
               value={title}
               onChangeText={setTitle}
-              placeholder="What's on your mind?"
-              placeholderTextColor={Colors.textMuted}
-              style={styles.titleInput}
               maxLength={120}
             />
-
-            <TextInput
+            <Field
+              placeholder="Details, a hot take, a pub tip…"
               value={body}
               onChangeText={setBody}
-              placeholder="Share more details, a hot take, or a pub recommendation..."
-              placeholderTextColor={Colors.textMuted}
-              style={styles.bodyInput}
               multiline
               maxLength={1000}
-              textAlignVertical="top"
+              hint={`${body.length}/1000`}
             />
+          </View>
 
-            <Text style={styles.charCount}>
-              {body.length}/1000
-            </Text>
-
-            <View style={styles.actions}>
-              <Button
-                title="Cancel"
-                onPress={handleCancel}
-                variant="ghost"
-                size="md"
-                style={{ flex: 0.4 }}
-              />
-              <Button
-                title="Post"
-                onPress={handleSubmit}
-                variant="primary"
-                size="md"
-                disabled={!title.trim()}
-                style={{ flex: 0.6 }}
-              />
-            </View>
+          <View style={styles.actions}>
+            <Button title="Cancel" onPress={cancel} variant="ghost" />
+            <Button title="Post" onPress={submit} disabled={!title.trim()} fullWidth style={{ flex: 1 }} />
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -122,80 +90,36 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
   },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(27,23,18,0.35)",
+  },
   sheet: {
     maxHeight: "85%",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    overflow: "hidden",
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: space.xl,
+    paddingTop: space.md,
+    paddingBottom: space.x3,
   },
-  content: {
-    backgroundColor: "rgba(17, 19, 24, 0.95)",
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 40,
-  },
-  handle: {
+  grip: {
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.textMuted,
     alignSelf: "center",
-    marginBottom: 16,
+    marginBottom: space.lg,
   },
-  headerRow: {
+  header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: Colors.text,
-  },
-  zoneBadge: {
-    backgroundColor: "rgba(179, 98, 0, 0.12)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  zoneText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: Colors.primaryLight,
-  },
-  titleInput: {
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 17,
-    fontWeight: "600",
-    color: Colors.text,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    marginBottom: 12,
-  },
-  bodyInput: {
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: Colors.text,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    minHeight: 140,
-  },
-  charCount: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    textAlign: "right",
-    marginTop: 6,
-    marginBottom: 20,
+    marginBottom: space.lg,
   },
   actions: {
     flexDirection: "row",
-    gap: 12,
+    alignItems: "center",
+    gap: space.md,
+    marginTop: space.xl,
   },
 });
