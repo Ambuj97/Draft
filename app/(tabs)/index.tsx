@@ -292,7 +292,7 @@ export default function MapScreen() {
       <View style={[styles.container, { backgroundColor: c.bg }]}>
         <StatusBar style="light" />
 
-        <View style={StyleSheet.absoluteFill}>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 0 }]}>
           <WebMap
             ref={mapRef}
             initialRegion={initialRegion}
@@ -524,6 +524,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
+    zIndex: 20,
   },
   controls: {
     flexDirection: "row",
@@ -535,6 +536,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: space.md,
     right: space.md,
+    zIndex: 20,
   },
   liveRow: { flexDirection: "row", alignItems: "center" },
   liveStat: { flex: 1, alignItems: "center", gap: 2 },
@@ -549,6 +551,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
+    zIndex: 20,
   },
   pulseDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#E4796F" },
   radarCard: { width: 210 },
@@ -561,5 +564,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(228,121,111,0.4)",
     padding: space.md,
+    zIndex: 20,
   },
 });
