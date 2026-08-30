@@ -21,11 +21,7 @@ const RNMaps = MAPS_AVAILABLE ? require("react-native-maps") : null;
 const MapView: any = RNMaps?.default;
 const Polyline: any = RNMaps?.Polyline;
 const Marker: any = RNMaps?.Marker;
-
-// Use the platform-default map provider (Apple Maps on iOS) so a dev build
-// works with no Google Maps API key. Switching to Google + a restricted key
-// is handled in feat/crawl-tracking.
-const MAP_PROVIDER: any = undefined;
+const PROVIDER_GOOGLE: any = RNMaps?.PROVIDER_GOOGLE;
 
 import { Text } from "@/components/ui/Text";
 import { Card } from "@/components/ui/Card";
@@ -268,8 +264,7 @@ export default function MapScreen() {
         <MapView
           ref={mapRef}
           style={StyleSheet.absoluteFill}
-          provider={MAP_PROVIDER}
-          userInterfaceStyle="dark"
+          provider={PROVIDER_GOOGLE}
           showsUserLocation
           showsMyLocationButton
           customMapStyle={darkMapStyle}
