@@ -23,27 +23,37 @@ import { sessions } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 const PERSIST_INTERVAL_MS = 10_000;
+/** No movement for this long → auto-pause. */
+const AUTOPAUSE_AFTER_MS = 60_000;
+/** Below this speed a fix doesn't count toward moving time (m/s ≈ 2 km/h). */
+const MOVING_SPEED_MPS = 0.6;
+/** How far you must walk from the auto-pause spot to auto-resume (metres). */
+const MIN_RESUME_METERS = 15;
 
 interface SessionState {
   isTracking: boolean;
   isPaused: boolean;
+  /** Paused by the recorder because you stopped moving (vs. you tapping pause). */
+  autoPaused: boolean;
   sessionId: number | null;
   sessionName: string;
-  /** One array per tracked segment — a pause starts a new one, so the map
-   *  draws a gap instead of a straight line across town. */
+  /** One array per tracked segment — a pause starts a new one. */
   segments: Coordinate[][];
   pointCount: number;
   distance: number;
+  /** Total wall time since start, minus paused time. */
   elapsedSeconds: number;
+  /** Time spent actually walking — the headline stat. */
+  movingSeconds: number;
   currentLocation: Coordinate | null;
   error: string | null;
 }
 
 interface SessionContextType extends SessionState {
-  /** All accepted points, flattened — for markers / counts. */
   path: Coordinate[];
   startSession: (name?: string) => Promise<void>;
-  stopSession: () => Promise<void>;
+  stopSession: (name?: string) => Promise<void>;
+  discardSession: () => Promise<void>;
   pauseSession: () => void;
   resumeSession: () => Promise<void>;
 }
@@ -51,12 +61,14 @@ interface SessionContextType extends SessionState {
 const initialState: SessionState = {
   isTracking: false,
   isPaused: false,
+  autoPaused: false,
   sessionId: null,
   sessionName: "",
   segments: [],
   pointCount: 0,
   distance: 0,
   elapsedSeconds: 0,
+  movingSeconds: 0,
   currentLocation: null,
   error: null,
 };
@@ -66,14 +78,15 @@ const SessionContext = createContext<SessionContextType>({
   path: [],
   startSession: async () => {},
   stopSession: async () => {},
+  discardSession: async () => {},
   pauseSession: () => {},
   resumeSession: async () => {},
 });
 
 /**
- * Records a GPS pub crawl: filtered path, gap-aware distance, a timestamp-based
- * clock (no drift when the JS thread is throttled), incremental persistence,
- * and startup cleanup of sessions the app was killed during.
+ * Records a GPS pub crawl, Strava-style: filtered path, gap-aware distance, a
+ * timestamp clock, moving-time with auto-pause / auto-resume, incremental
+ * persistence, and startup cleanup of sessions the app was killed during.
  *
  * Foreground only — continuous background tracking needs the dev-build task
  * added in feat/background-gps.
@@ -93,12 +106,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const sessionIdRef = useRef<number | null>(null);
   const trackingRef = useRef(false);
   const pausedRef = useRef(false);
+  const autoPausedRef = useRef(false);
+  const autoPausePosRef = useRef<Coordinate | null>(null);
 
   const timing = useRef<{
     startedAt: number;
     pausedTotalMs: number;
     pauseStartedAt: number | null;
-  }>({ startedAt: 0, pausedTotalMs: 0, pauseStartedAt: null });
+    movingMs: number;
+    lastMoveAt: number;
+  }>({
+    startedAt: 0,
+    pausedTotalMs: 0,
+    pauseStartedAt: null,
+    movingMs: 0,
+    lastMoveAt: 0,
+  });
 
   const computeElapsed = useCallback(() => {
     const t = timing.current;
@@ -117,9 +140,64 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const resetEngine = useCallback(() => {
+    watchRef.current?.remove();
+    watchRef.current = null;
+    if (tickRef.current) {
+      clearInterval(tickRef.current);
+      tickRef.current = null;
+    }
+    if (persistRef.current) {
+      clearInterval(persistRef.current);
+      persistRef.current = null;
+    }
+    segmentsRef.current = [];
+    distanceRef.current = 0;
+    lastFixRef.current = null;
+    startNewSegRef.current = false;
+    sessionIdRef.current = null;
+    trackingRef.current = false;
+    pausedRef.current = false;
+    autoPausedRef.current = false;
+    autoPausePosRef.current = null;
+    timing.current = {
+      startedAt: 0,
+      pausedTotalMs: 0,
+      pauseStartedAt: null,
+      movingMs: 0,
+      lastMoveAt: 0,
+    };
+    setState(initialState);
+  }, []);
+
   const onFix = useCallback(
     (coord: Coordinate) => {
       setState((s) => ({ ...s, currentLocation: coord }));
+
+      // While paused, only an auto-pause keeps the watcher alive — and only to
+      // notice that you've started walking again.
+      if (pausedRef.current) {
+        if (autoPausedRef.current && autoPausePosRef.current) {
+          const moved = haversineDistance(autoPausePosRef.current, coord);
+          if (moved >= MIN_RESUME_METERS) {
+            const t = timing.current;
+            if (t.pauseStartedAt != null) {
+              t.pausedTotalMs += Date.now() - t.pauseStartedAt;
+              t.pauseStartedAt = null;
+            }
+            t.lastMoveAt = Date.now();
+            autoPausedRef.current = false;
+            pausedRef.current = false;
+            autoPausePosRef.current = null;
+            segmentsRef.current.push([coord]);
+            startNewSegRef.current = false;
+            lastFixRef.current = coord;
+            setState((s) => ({ ...s, isPaused: false, autoPaused: false }));
+            syncPath();
+          }
+        }
+        return;
+      }
 
       const prev = lastFixRef.current;
       const starting =
@@ -133,7 +211,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       } else {
         const seg = segmentsRef.current[segmentsRef.current.length - 1];
         seg.push(coord);
-        if (prev) distanceRef.current += haversineDistance(prev, coord);
+        if (prev) {
+          const d = haversineDistance(prev, coord);
+          distanceRef.current += d;
+          const dt = (coord.timestamp - prev.timestamp) / 1000;
+          if (dt > 0 && d / dt >= MOVING_SPEED_MPS) {
+            timing.current.movingMs += Math.min(dt, 10) * 1000;
+            timing.current.lastMoveAt = Date.now();
+          }
+        }
       }
       lastFixRef.current = coord;
       syncPath();
@@ -151,6 +237,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           pathJson: JSON.stringify(segmentsRef.current),
           distance: distanceRef.current,
           pausedMs: timing.current.pausedTotalMs,
+          movingMs: timing.current.movingMs,
         })
         .where(eq(sessions.id, id));
     } catch (err) {
@@ -158,14 +245,30 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [db, isReady]);
 
-  // Ticking clock — value is derived from timestamps, the interval only
-  // triggers the re-render, so a throttled JS thread can't make it drift.
+  // Ticking clock + auto-pause watchdog. Values are derived from timestamps so
+  // a throttled JS thread can't make them drift.
   useEffect(() => {
     if (!state.isTracking || state.isPaused) return;
-    setState((s) => ({ ...s, elapsedSeconds: computeElapsed() }));
-    tickRef.current = setInterval(() => {
-      setState((s) => ({ ...s, elapsedSeconds: computeElapsed() }));
-    }, 1000);
+
+    const update = () => {
+      setState((s) => ({
+        ...s,
+        elapsedSeconds: computeElapsed(),
+        movingSeconds: Math.floor(timing.current.movingMs / 1000),
+      }));
+
+      if (Date.now() - timing.current.lastMoveAt > AUTOPAUSE_AFTER_MS) {
+        timing.current.pauseStartedAt = Date.now();
+        autoPausePosRef.current = lastFixRef.current;
+        startNewSegRef.current = true;
+        pausedRef.current = true;
+        autoPausedRef.current = true;
+        setState((s) => ({ ...s, isPaused: true, autoPaused: true }));
+      }
+    };
+
+    update();
+    tickRef.current = setInterval(update, 1000);
     return () => {
       if (tickRef.current) {
         clearInterval(tickRef.current);
@@ -183,8 +286,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       .catch((err) => console.warn("[session] orphan cleanup failed", err));
   }, [isReady, db]);
 
-  // Re-foreground catch-up: Expo Go suspends the watcher in the background, so
-  // grab one fix on return to reconnect the path.
+  // Re-foreground catch-up: Expo Go suspends the watcher in the background.
   useEffect(() => {
     const sub = AppState.addEventListener("change", async (next) => {
       if (next !== "active" || !trackingRef.current || pausedRef.current) return;
@@ -200,7 +302,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [onFix]);
 
-  // Tear down on unmount (provider is app-lifetime, but be tidy).
   useEffect(() => {
     return () => {
       watchRef.current?.remove();
@@ -230,10 +331,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         distanceRef.current = 0;
         lastFixRef.current = null;
         startNewSegRef.current = false;
+        autoPausedRef.current = false;
+        autoPausePosRef.current = null;
         timing.current = {
           startedAt: startedAtMs,
           pausedTotalMs: 0,
           pauseStartedAt: null,
+          movingMs: 0,
+          lastMoveAt: startedAtMs,
         };
 
         let newId: number | null = null;
@@ -246,6 +351,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
               pathJson: "[]",
               distance: 0,
               pausedMs: 0,
+              movingMs: 0,
               isLive: true,
               createdAt: nowIso,
             })
@@ -284,10 +390,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const pauseSession = useCallback(() => {
     watchRef.current?.remove();
     watchRef.current = null;
-    timing.current.pauseStartedAt = Date.now();
+    const t = timing.current;
+    if (t.pauseStartedAt == null) t.pauseStartedAt = Date.now();
+    autoPausedRef.current = false;
+    autoPausePosRef.current = null;
     startNewSegRef.current = true;
     pausedRef.current = true;
-    setState((s) => ({ ...s, isPaused: true, elapsedSeconds: computeElapsed() }));
+    setState((s) => ({
+      ...s,
+      isPaused: true,
+      autoPaused: false,
+      elapsedSeconds: computeElapsed(),
+    }));
     persistProgress();
   }, [computeElapsed, persistProgress]);
 
@@ -297,57 +411,59 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       t.pausedTotalMs += Date.now() - t.pauseStartedAt;
       t.pauseStartedAt = null;
     }
+    t.lastMoveAt = Date.now();
+    autoPausedRef.current = false;
+    autoPausePosRef.current = null;
     pausedRef.current = false;
-    setState((s) => ({ ...s, isPaused: false }));
-    watchRef.current = await watchPosition(onFix);
+    setState((s) => ({ ...s, isPaused: false, autoPaused: false }));
+    if (!watchRef.current) {
+      watchRef.current = await watchPosition(onFix);
+    }
   }, [onFix]);
 
-  const stopSession = useCallback(async () => {
-    watchRef.current?.remove();
-    watchRef.current = null;
-    if (tickRef.current) {
-      clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
-    if (persistRef.current) {
-      clearInterval(persistRef.current);
-      persistRef.current = null;
-    }
+  const stopSession = useCallback(
+    async (name?: string) => {
+      const t = timing.current;
+      if (t.pauseStartedAt != null) {
+        t.pausedTotalMs += Date.now() - t.pauseStartedAt;
+        t.pauseStartedAt = null;
+      }
 
-    const t = timing.current;
-    if (t.pauseStartedAt != null) {
-      t.pausedTotalMs += Date.now() - t.pauseStartedAt;
-      t.pauseStartedAt = null;
-    }
+      const id = sessionIdRef.current;
+      if (id != null && isReady) {
+        try {
+          await db
+            .update(sessions)
+            .set({
+              name: name?.trim() ? name.trim() : undefined,
+              endedAt: new Date().toISOString(),
+              pathJson: JSON.stringify(segmentsRef.current),
+              distance: distanceRef.current,
+              pausedMs: t.pausedTotalMs,
+              movingMs: t.movingMs,
+              isLive: false,
+            })
+            .where(eq(sessions.id, id));
+        } catch (err) {
+          console.error("[session] save failed", err);
+        }
+      }
+      resetEngine();
+    },
+    [db, isReady, resetEngine]
+  );
 
+  const discardSession = useCallback(async () => {
     const id = sessionIdRef.current;
     if (id != null && isReady) {
       try {
-        await db
-          .update(sessions)
-          .set({
-            endedAt: new Date().toISOString(),
-            pathJson: JSON.stringify(segmentsRef.current),
-            distance: distanceRef.current,
-            pausedMs: t.pausedTotalMs,
-            isLive: false,
-          })
-          .where(eq(sessions.id, id));
+        await db.delete(sessions).where(eq(sessions.id, id));
       } catch (err) {
-        console.error("[session] save failed", err);
+        console.error("[session] discard failed", err);
       }
     }
-
-    segmentsRef.current = [];
-    distanceRef.current = 0;
-    lastFixRef.current = null;
-    startNewSegRef.current = false;
-    sessionIdRef.current = null;
-    trackingRef.current = false;
-    pausedRef.current = false;
-    timing.current = { startedAt: 0, pausedTotalMs: 0, pauseStartedAt: null };
-    setState(initialState);
-  }, [db, isReady]);
+    resetEngine();
+  }, [db, isReady, resetEngine]);
 
   const path = useMemo(() => state.segments.flat(), [state.segments]);
 
@@ -358,6 +474,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         path,
         startSession,
         stopSession,
+        discardSession,
         pauseSession,
         resumeSession,
       }}
