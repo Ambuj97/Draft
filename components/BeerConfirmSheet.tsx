@@ -10,7 +10,7 @@ import {
   Platform,
   ActivityIndicator,
 } from "react-native";
-import { getLocales } from "expo-localization";
+import { useCurrency } from "@/services/currency";
 import { Text } from "@/components/ui/Text";
 import { Field } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
@@ -57,7 +57,7 @@ export function BeerConfirmSheet({
   onCancel,
 }: BeerConfirmSheetProps) {
   const { colors } = useTheme();
-  const currency = getLocales()[0]?.currencySymbol || "£";
+  const { symbol: currency } = useCurrency();
 
   const [name, setName] = useState("");
   const [brewery, setBrewery] = useState("");
