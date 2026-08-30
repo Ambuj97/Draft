@@ -83,6 +83,7 @@ export default function MapScreen() {
     isTracking,
     isPaused,
     path,
+    segments,
     distance,
     elapsedSeconds,
     currentLocation,
@@ -295,7 +296,7 @@ export default function MapScreen() {
           <WebMap
             ref={mapRef}
             initialRegion={initialRegion}
-            path={path}
+            segments={segments}
             markers={mapMarkers}
             userLocation={myLocation}
             accent={c.accent}

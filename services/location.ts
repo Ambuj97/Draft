@@ -6,6 +6,8 @@ export interface Coordinate {
   timestamp: number;
   altitude?: number | null;
   speed?: number | null;
+  /** Horizontal accuracy in metres, if the OS reported it. */
+  accuracy?: number | null;
 }
 
 /**
@@ -17,13 +19,14 @@ export async function requestLocationPermission(): Promise<boolean> {
   return status === "granted";
 }
 
-function toCoordinate(location: Location.LocationObject): Coordinate {
+export function toCoordinate(location: Location.LocationObject): Coordinate {
   return {
     latitude: location.coords.latitude,
     longitude: location.coords.longitude,
     timestamp: location.timestamp,
     altitude: location.coords.altitude,
     speed: location.coords.speed,
+    accuracy: location.coords.accuracy,
   };
 }
 
@@ -59,30 +62,70 @@ export async function getLastKnownPosition(): Promise<Coordinate | null> {
 }
 
 /**
- * Start watching position changes.
- * Returns a subscription that must be removed when done.
+ * Watch position for an active crawl. High accuracy is required — Balanced is
+ * ~100m, too coarse for a walking route and mostly rejected by the noise
+ * filter. Battery is kept in check with a longer interval / distance step than
+ * the defaults, and `acceptFix` cleans the rest.
  */
 export async function watchPosition(
-  onUpdate: (coord: Coordinate) => void,
-  intervalMs: number = 3000
+  onUpdate: (coord: Coordinate) => void
 ): Promise<Location.LocationSubscription> {
-  const subscription = await Location.watchPositionAsync(
+  return Location.watchPositionAsync(
     {
       accuracy: Location.Accuracy.High,
-      timeInterval: intervalMs,
-      distanceInterval: 5, // meters
+      timeInterval: 4000,
+      distanceInterval: 8,
     },
-    (location) => {
-      onUpdate({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        timestamp: location.timestamp,
-        altitude: location.coords.altitude,
-        speed: location.coords.speed,
-      });
-    }
+    (location) => onUpdate(toCoordinate(location))
   );
-  return subscription;
+}
+
+export interface FixFilterOptions {
+  /** Drop fixes reported worse than this (metres). */
+  maxAccuracy?: number;
+  /** Drop fixes closer than this to the last accepted point (kills jitter). */
+  minDistance?: number;
+  /** Drop fixes implying a speed above this (m/s) — GPS teleports. */
+  maxSpeed?: number;
+  /** First fix of a new segment (after a pause) — skip the vs-previous checks. */
+  startingSegment?: boolean;
+}
+
+export interface FixDecision {
+  accept: boolean;
+  reason?: "accuracy" | "jitter" | "speed";
+}
+
+/**
+ * Decide whether a raw GPS fix should be added to the recorded path.
+ * `prev` is the last *accepted* fix in the current segment.
+ */
+export function acceptFix(
+  prev: Coordinate | null,
+  next: Coordinate,
+  opts: FixFilterOptions = {}
+): FixDecision {
+  const {
+    maxAccuracy = 50,
+    minDistance = 6,
+    maxSpeed = 12,
+    startingSegment = false,
+  } = opts;
+
+  if (next.accuracy != null && next.accuracy > maxAccuracy) {
+    return { accept: false, reason: "accuracy" };
+  }
+  if (!prev || startingSegment) {
+    return { accept: true };
+  }
+
+  const d = haversineDistance(prev, next);
+  if (d < minDistance) return { accept: false, reason: "jitter" };
+
+  const dt = (next.timestamp - prev.timestamp) / 1000;
+  if (dt > 0 && d / dt > maxSpeed) return { accept: false, reason: "speed" };
+
+  return { accept: true };
 }
 
 /**

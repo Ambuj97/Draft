@@ -30,7 +30,8 @@ export interface WebMapHandle {
 
 interface Props {
   initialRegion: Region;
-  path?: { latitude: number; longitude: number }[];
+  /** One polyline per segment (a pause splits the crawl path). */
+  segments?: { latitude: number; longitude: number }[][];
   markers?: WebMapMarker[];
   userLocation?: { latitude: number; longitude: number } | null;
   accent?: string;
@@ -101,15 +102,17 @@ function buildHtml(region: Region, accent: string): string {
   map.on('click', function () { send({ type: 'press' }); });
   map.on('dragstart', function () { send({ type: 'press' }); });
 
-  var pathLine = null;
+  var pathLayer = L.layerGroup().addTo(map);
   var userDot = null;
   var markerLayer = L.layerGroup().addTo(map);
 
-  window.__setPath = function (coords) {
-    if (pathLine) { map.removeLayer(pathLine); pathLine = null; }
-    if (coords && coords.length > 1) {
-      pathLine = L.polyline(coords, { color: accent, weight: 4, opacity: 0.9 }).addTo(map);
-    }
+  window.__setSegments = function (segments) {
+    pathLayer.clearLayers();
+    (segments || []).forEach(function (coords) {
+      if (coords && coords.length > 1) {
+        L.polyline(coords, { color: accent, weight: 4, opacity: 0.9 }).addTo(pathLayer);
+      }
+    });
   };
 
   window.__setUser = function (c) {
@@ -170,7 +173,7 @@ function buildHtml(region: Region, accent: string): string {
  * Runs in Expo Go — no native map module, no API key.
  */
 export const WebMap = forwardRef<WebMapHandle, Props>(function WebMap(
-  { initialRegion, path, markers, userLocation, accent, onReady, onPress, onMarkerPress },
+  { initialRegion, segments, markers, userLocation, accent, onReady, onPress, onMarkerPress },
   ref
 ) {
   const webRef = useRef<WebView>(null);
@@ -189,9 +192,11 @@ export const WebMap = forwardRef<WebMapHandle, Props>(function WebMap(
   }));
 
   useEffect(() => {
-    const coords = (path ?? []).map((p) => [p.latitude, p.longitude]);
-    run(`window.__setPath(${JSON.stringify(coords)})`);
-  }, [path]);
+    const segs = (segments ?? []).map((seg) =>
+      seg.map((p) => [p.latitude, p.longitude])
+    );
+    run(`window.__setSegments(${JSON.stringify(segs)})`);
+  }, [segments]);
 
   useEffect(() => {
     const list = (markers ?? []).map((m) => ({

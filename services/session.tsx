@@ -1,29 +1,38 @@
 import React, {
   createContext,
-  useContext,
-  useState,
-  useRef,
   useCallback,
+  useContext,
   useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from "react";
+import { AppState } from "react-native";
 import * as Location from "expo-location";
 import {
   Coordinate,
+  acceptFix,
+  haversineDistance,
   requestLocationPermission,
   getCurrentPosition,
   watchPosition,
-  totalPathDistance,
+  toCoordinate,
 } from "@/services/location";
 import { useDatabase } from "@/db/provider";
 import { sessions } from "@/db/schema";
 import { eq } from "drizzle-orm";
+
+const PERSIST_INTERVAL_MS = 10_000;
 
 interface SessionState {
   isTracking: boolean;
   isPaused: boolean;
   sessionId: number | null;
   sessionName: string;
-  path: Coordinate[];
+  /** One array per tracked segment — a pause starts a new one, so the map
+   *  draws a gap instead of a straight line across town. */
+  segments: Coordinate[][];
+  pointCount: number;
   distance: number;
   elapsedSeconds: number;
   currentLocation: Coordinate | null;
@@ -31,10 +40,12 @@ interface SessionState {
 }
 
 interface SessionContextType extends SessionState {
+  /** All accepted points, flattened — for markers / counts. */
+  path: Coordinate[];
   startSession: (name?: string) => Promise<void>;
   stopSession: () => Promise<void>;
   pauseSession: () => void;
-  resumeSession: () => void;
+  resumeSession: () => Promise<void>;
 }
 
 const initialState: SessionState = {
@@ -42,7 +53,8 @@ const initialState: SessionState = {
   isPaused: false,
   sessionId: null,
   sessionName: "",
-  path: [],
+  segments: [],
+  pointCount: 0,
   distance: 0,
   elapsedSeconds: 0,
   currentLocation: null,
@@ -51,176 +63,299 @@ const initialState: SessionState = {
 
 const SessionContext = createContext<SessionContextType>({
   ...initialState,
+  path: [],
   startSession: async () => {},
   stopSession: async () => {},
   pauseSession: () => {},
-  resumeSession: () => {},
+  resumeSession: async () => {},
 });
 
 /**
- * Manages GPS pub crawl sessions — start/stop tracking,
- * path recording, distance calculation, and SQLite persistence.
+ * Records a GPS pub crawl: filtered path, gap-aware distance, a timestamp-based
+ * clock (no drift when the JS thread is throttled), incremental persistence,
+ * and startup cleanup of sessions the app was killed during.
+ *
+ * Foreground only — continuous background tracking needs the dev-build task
+ * added in feat/background-gps.
  */
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const { db, isReady } = useDatabase();
   const [state, setState] = useState<SessionState>(initialState);
 
-  const locationSub = useRef<Location.LocationSubscription | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pathRef = useRef<Coordinate[]>([]);
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const persistRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Timer tick
-  useEffect(() => {
-    if (state.isTracking && !state.isPaused) {
-      timerRef.current = setInterval(() => {
-        setState((prev) => ({
-          ...prev,
-          elapsedSeconds: prev.elapsedSeconds + 1,
-        }));
-      }, 1000);
+  const segmentsRef = useRef<Coordinate[][]>([]);
+  const distanceRef = useRef(0);
+  const lastFixRef = useRef<Coordinate | null>(null);
+  const startNewSegRef = useRef(false);
+  const sessionIdRef = useRef<number | null>(null);
+  const trackingRef = useRef(false);
+  const pausedRef = useRef(false);
+
+  const timing = useRef<{
+    startedAt: number;
+    pausedTotalMs: number;
+    pauseStartedAt: number | null;
+  }>({ startedAt: 0, pausedTotalMs: 0, pauseStartedAt: null });
+
+  const computeElapsed = useCallback(() => {
+    const t = timing.current;
+    if (!t.startedAt) return 0;
+    const end = t.pauseStartedAt ?? Date.now();
+    return Math.max(0, Math.floor((end - t.startedAt - t.pausedTotalMs) / 1000));
+  }, []);
+
+  const syncPath = useCallback(() => {
+    const count = segmentsRef.current.reduce((n, s) => n + s.length, 0);
+    setState((s) => ({
+      ...s,
+      segments: segmentsRef.current.map((seg) => seg.slice()),
+      pointCount: count,
+      distance: distanceRef.current,
+    }));
+  }, []);
+
+  const onFix = useCallback(
+    (coord: Coordinate) => {
+      setState((s) => ({ ...s, currentLocation: coord }));
+
+      const prev = lastFixRef.current;
+      const starting =
+        startNewSegRef.current || segmentsRef.current.length === 0;
+
+      if (!acceptFix(prev, coord, { startingSegment: starting }).accept) return;
+
+      if (starting) {
+        segmentsRef.current.push([coord]);
+        startNewSegRef.current = false;
+      } else {
+        const seg = segmentsRef.current[segmentsRef.current.length - 1];
+        seg.push(coord);
+        if (prev) distanceRef.current += haversineDistance(prev, coord);
+      }
+      lastFixRef.current = coord;
+      syncPath();
+    },
+    [syncPath]
+  );
+
+  const persistProgress = useCallback(async () => {
+    const id = sessionIdRef.current;
+    if (id == null || !isReady) return;
+    try {
+      await db
+        .update(sessions)
+        .set({
+          pathJson: JSON.stringify(segmentsRef.current),
+          distance: distanceRef.current,
+          pausedMs: timing.current.pausedTotalMs,
+        })
+        .where(eq(sessions.id, id));
+    } catch (err) {
+      console.warn("[session] persist failed", err);
     }
+  }, [db, isReady]);
 
+  // Ticking clock — value is derived from timestamps, the interval only
+  // triggers the re-render, so a throttled JS thread can't make it drift.
+  useEffect(() => {
+    if (!state.isTracking || state.isPaused) return;
+    setState((s) => ({ ...s, elapsedSeconds: computeElapsed() }));
+    tickRef.current = setInterval(() => {
+      setState((s) => ({ ...s, elapsedSeconds: computeElapsed() }));
+    }, 1000);
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
+      if (tickRef.current) {
+        clearInterval(tickRef.current);
+        tickRef.current = null;
       }
     };
-  }, [state.isTracking, state.isPaused]);
+  }, [state.isTracking, state.isPaused, computeElapsed]);
+
+  // Close out any session the app died in the middle of.
+  useEffect(() => {
+    if (!isReady) return;
+    db.update(sessions)
+      .set({ isLive: false, endedAt: new Date().toISOString() })
+      .where(eq(sessions.isLive, true))
+      .catch((err) => console.warn("[session] orphan cleanup failed", err));
+  }, [isReady, db]);
+
+  // Re-foreground catch-up: Expo Go suspends the watcher in the background, so
+  // grab one fix on return to reconnect the path.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", async (next) => {
+      if (next !== "active" || !trackingRef.current || pausedRef.current) return;
+      try {
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        onFix(toCoordinate(loc));
+      } catch {
+        /* ignore — next watcher fix will catch up */
+      }
+    });
+    return () => sub.remove();
+  }, [onFix]);
+
+  // Tear down on unmount (provider is app-lifetime, but be tidy).
+  useEffect(() => {
+    return () => {
+      watchRef.current?.remove();
+      if (tickRef.current) clearInterval(tickRef.current);
+      if (persistRef.current) clearInterval(persistRef.current);
+    };
+  }, []);
 
   const startSession = useCallback(
     async (name?: string) => {
       try {
-        const hasPermission = await requestLocationPermission();
-        if (!hasPermission) {
-          setState((prev) => ({
-            ...prev,
-            error: "Location permission denied",
+        const ok = await requestLocationPermission();
+        if (!ok) {
+          setState((s) => ({
+            ...s,
+            error: "Location permission is needed to track a crawl.",
           }));
           return;
         }
 
-        const now = new Date().toISOString();
+        const startedAtMs = Date.now();
+        const nowIso = new Date(startedAtMs).toISOString();
         const sessionName =
-          name || `Session ${new Date().toLocaleDateString()}`;
+          name || `Crawl · ${new Date(startedAtMs).toLocaleDateString()}`;
 
-        // Create session in DB
-        let newSessionId: number | null = null;
+        segmentsRef.current = [];
+        distanceRef.current = 0;
+        lastFixRef.current = null;
+        startNewSegRef.current = false;
+        timing.current = {
+          startedAt: startedAtMs,
+          pausedTotalMs: 0,
+          pauseStartedAt: null,
+        };
+
+        let newId: number | null = null;
         if (isReady) {
-          const result = await db
+          const rows = await db
             .insert(sessions)
             .values({
               name: sessionName,
-              startedAt: now,
+              startedAt: nowIso,
               pathJson: "[]",
+              distance: 0,
+              pausedMs: 0,
               isLive: true,
-              createdAt: now,
+              createdAt: nowIso,
             })
             .returning({ id: sessions.id });
-          newSessionId = result[0]?.id ?? null;
+          newId = rows[0]?.id ?? null;
+        }
+        sessionIdRef.current = newId;
+        trackingRef.current = true;
+        pausedRef.current = false;
+
+        const first = await getCurrentPosition("high");
+        if (first) {
+          segmentsRef.current.push([first]);
+          lastFixRef.current = first;
         }
 
-        // Get initial position
-        const initialPos = await getCurrentPosition();
-
-        pathRef.current = initialPos ? [initialPos] : [];
-
         setState({
+          ...initialState,
           isTracking: true,
-          isPaused: false,
-          sessionId: newSessionId,
+          sessionId: newId,
           sessionName,
-          path: pathRef.current,
-          distance: 0,
-          elapsedSeconds: 0,
-          currentLocation: initialPos,
-          error: null,
+          segments: segmentsRef.current.map((s) => s.slice()),
+          pointCount: first ? 1 : 0,
+          currentLocation: first ?? null,
         });
 
-        // Start watching
-        const sub = await watchPosition((coord) => {
-          pathRef.current.push(coord);
-          const dist = totalPathDistance(pathRef.current);
-          setState((prev) => ({
-            ...prev,
-            path: [...pathRef.current],
-            distance: dist,
-            currentLocation: coord,
-          }));
-        });
-        locationSub.current = sub;
+        watchRef.current = await watchPosition(onFix);
+        persistRef.current = setInterval(persistProgress, PERSIST_INTERVAL_MS);
       } catch (err) {
-        setState((prev) => ({
-          ...prev,
-          error: `Failed to start session: ${err}`,
-        }));
+        setState((s) => ({ ...s, error: `Couldn't start the crawl: ${err}` }));
       }
     },
-    [db, isReady]
+    [db, isReady, onFix, persistProgress]
   );
 
+  const pauseSession = useCallback(() => {
+    watchRef.current?.remove();
+    watchRef.current = null;
+    timing.current.pauseStartedAt = Date.now();
+    startNewSegRef.current = true;
+    pausedRef.current = true;
+    setState((s) => ({ ...s, isPaused: true, elapsedSeconds: computeElapsed() }));
+    persistProgress();
+  }, [computeElapsed, persistProgress]);
+
+  const resumeSession = useCallback(async () => {
+    const t = timing.current;
+    if (t.pauseStartedAt != null) {
+      t.pausedTotalMs += Date.now() - t.pauseStartedAt;
+      t.pauseStartedAt = null;
+    }
+    pausedRef.current = false;
+    setState((s) => ({ ...s, isPaused: false }));
+    watchRef.current = await watchPosition(onFix);
+  }, [onFix]);
+
   const stopSession = useCallback(async () => {
-    // Stop watching
-    if (locationSub.current) {
-      locationSub.current.remove();
-      locationSub.current = null;
+    watchRef.current?.remove();
+    watchRef.current = null;
+    if (tickRef.current) {
+      clearInterval(tickRef.current);
+      tickRef.current = null;
+    }
+    if (persistRef.current) {
+      clearInterval(persistRef.current);
+      persistRef.current = null;
     }
 
-    // Stop timer
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+    const t = timing.current;
+    if (t.pauseStartedAt != null) {
+      t.pausedTotalMs += Date.now() - t.pauseStartedAt;
+      t.pauseStartedAt = null;
     }
 
-    // Save to DB
-    if (state.sessionId && isReady) {
-      const now = new Date().toISOString();
+    const id = sessionIdRef.current;
+    if (id != null && isReady) {
       try {
         await db
           .update(sessions)
           .set({
-            endedAt: now,
-            pathJson: JSON.stringify(pathRef.current),
-            distance: state.distance,
+            endedAt: new Date().toISOString(),
+            pathJson: JSON.stringify(segmentsRef.current),
+            distance: distanceRef.current,
+            pausedMs: t.pausedTotalMs,
             isLive: false,
           })
-          .where(eq(sessions.id, state.sessionId));
+          .where(eq(sessions.id, id));
       } catch (err) {
-        console.error("Failed to save session:", err);
+        console.error("[session] save failed", err);
       }
     }
 
-    pathRef.current = [];
+    segmentsRef.current = [];
+    distanceRef.current = 0;
+    lastFixRef.current = null;
+    startNewSegRef.current = false;
+    sessionIdRef.current = null;
+    trackingRef.current = false;
+    pausedRef.current = false;
+    timing.current = { startedAt: 0, pausedTotalMs: 0, pauseStartedAt: null };
     setState(initialState);
-  }, [db, isReady, state.sessionId, state.distance]);
+  }, [db, isReady]);
 
-  const pauseSession = useCallback(() => {
-    if (locationSub.current) {
-      locationSub.current.remove();
-      locationSub.current = null;
-    }
-    setState((prev) => ({ ...prev, isPaused: true }));
-  }, []);
-
-  const resumeSession = useCallback(async () => {
-    const sub = await watchPosition((coord) => {
-      pathRef.current.push(coord);
-      const dist = totalPathDistance(pathRef.current);
-      setState((prev) => ({
-        ...prev,
-        path: [...pathRef.current],
-        distance: dist,
-        currentLocation: coord,
-      }));
-    });
-    locationSub.current = sub;
-    setState((prev) => ({ ...prev, isPaused: false }));
-  }, []);
+  const path = useMemo(() => state.segments.flat(), [state.segments]);
 
   return (
     <SessionContext.Provider
       value={{
         ...state,
+        path,
         startSession,
         stopSession,
         pauseSession,
