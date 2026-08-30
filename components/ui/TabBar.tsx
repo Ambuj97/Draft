@@ -1,10 +1,16 @@
 import React from "react";
-import { View, Pressable, StyleSheet, Text as RNText } from "react-native";
+import {
+  View,
+  Pressable,
+  StyleSheet,
+  Text as RNText,
+  useWindowDimensions,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { themes, space, fonts, elevation } from "@/constants/theme";
+import { themes, space, fonts } from "@/constants/theme";
 
 const TAB_CONFIG: Record<
   string,
@@ -18,28 +24,42 @@ const TAB_CONFIG: Record<
 
 const BAR_HEIGHT = 58;
 
-/**
- * Flat editorial tab bar pinned to the bottom edge: foam surface, hairline
- * top rule, a short amber marker over the active tab. Always paper-styled.
- */
 export function DraftTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const c = themes.paper;
+
+  const routes = state.routes;
+  const tabWidth = width / routes.length;
+
+  // eslint-disable-next-line no-console
+  console.log(
+    "[DraftTabBar] v3-debug routes=",
+    routes.map((r) => r.name),
+    "width=",
+    width,
+    "tabWidth=",
+    tabWidth
+  );
 
   return (
     <View
-      style={[
-        styles.wrapper,
-        elevation.raised,
-        {
-          backgroundColor: c.surface,
-          borderTopColor: c.border,
-          height: BAR_HEIGHT + insets.bottom,
-          paddingBottom: insets.bottom,
-        },
-      ]}
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width,
+        height: BAR_HEIGHT + insets.bottom,
+        paddingBottom: insets.bottom,
+        paddingTop: space.sm,
+        flexDirection: "row",
+        backgroundColor: c.surface,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: c.border,
+      }}
     >
-      {state.routes.map((route, index) => {
+      {routes.map((route, index) => {
         const isFocused = state.index === index;
         const cfg =
           TAB_CONFIG[route.name] ?? { icon: "circle-o" as const, label: route.name };
@@ -63,24 +83,35 @@ export function DraftTabBar({ state, navigation }: BottomTabBarProps) {
             accessibilityRole="button"
             accessibilityState={isFocused ? { selected: true } : {}}
             onPress={onPress}
-            style={({ pressed }) => [
-              styles.tab,
-              pressed ? { opacity: 0.55 } : null,
-            ]}
+            style={{
+              width: tabWidth,
+              alignItems: "center",
+              justifyContent: "flex-start",
+              // TEMP debug border to reveal tab bounds in screenshots
+              borderRightWidth: index < routes.length - 1 ? StyleSheet.hairlineWidth : 0,
+              borderRightColor: c.border,
+            }}
           >
             <View
-              style={[
-                styles.marker,
-                { backgroundColor: isFocused ? c.accent : "transparent" },
-              ]}
+              style={{
+                width: 18,
+                height: 2,
+                borderRadius: 1,
+                marginBottom: 6,
+                backgroundColor: isFocused ? c.accent : "transparent",
+              }}
             />
             <FontAwesome name={cfg.icon} size={19} color={tint} />
             <RNText
               numberOfLines={1}
-              style={[
-                styles.label,
-                { color: tint, fontFamily: isFocused ? fonts.sansBold : fonts.sansMedium },
-              ]}
+              style={{
+                marginTop: 4,
+                fontSize: 10,
+                letterSpacing: 0.5,
+                textAlign: "center",
+                color: tint,
+                fontFamily: isFocused ? fonts.sansBold : fonts.sansMedium,
+              }}
             >
               {cfg.label.toUpperCase()}
             </RNText>
@@ -90,34 +121,3 @@ export function DraftTabBar({ state, navigation }: BottomTabBarProps) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrapper: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: space.sm,
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    paddingHorizontal: 4,
-  },
-  marker: {
-    width: 18,
-    height: 2,
-    borderRadius: 1,
-    marginBottom: 6,
-  },
-  label: {
-    marginTop: 4,
-    fontSize: 10,
-    letterSpacing: 0.5,
-    textAlign: "center",
-  },
-});
