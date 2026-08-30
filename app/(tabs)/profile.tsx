@@ -12,7 +12,17 @@ import { useDatabase } from "@/db/provider";
 import { sessions, Session } from "@/db/schema";
 import { desc } from "drizzle-orm";
 import { space } from "@/constants/theme";
-import { formatDistance } from "@/services/location";
+import { formatDistance, formatDuration } from "@/services/location";
+
+/** Wall time between start and end, minus paused time, in seconds. */
+function sessionDurationSeconds(s: Session): number | null {
+  if (!s.endedAt) return null;
+  const ms =
+    new Date(s.endedAt).getTime() -
+    new Date(s.startedAt).getTime() -
+    (s.pausedMs ?? 0);
+  return ms > 0 ? Math.floor(ms / 1000) : 0;
+}
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
@@ -81,26 +91,29 @@ export default function ProfileScreen() {
         </Card>
       ) : (
         <View style={{ gap: space.sm }}>
-          {history.map((s) => (
-            <Card key={s.id} style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <Text variant="bodyStrong" numberOfLines={1}>
-                  {s.name}
+          {history.map((s) => {
+            const dur = sessionDurationSeconds(s);
+            return (
+              <Card key={s.id} style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyStrong" numberOfLines={1}>
+                    {s.name}
+                  </Text>
+                  <Text variant="caption" color="muted" style={{ marginTop: 2 }}>
+                    {new Date(s.startedAt).toLocaleDateString(undefined, {
+                      weekday: "short",
+                      day: "numeric",
+                      month: "short",
+                    })}
+                    {dur != null ? ` · ${formatDuration(dur)}` : " · unfinished"}
+                  </Text>
+                </View>
+                <Text variant="mono" color="accent">
+                  {formatDistance(s.distance || 0)}
                 </Text>
-                <Text variant="caption" color="muted" style={{ marginTop: 2 }}>
-                  {new Date(s.startedAt).toLocaleDateString(undefined, {
-                    weekday: "short",
-                    day: "numeric",
-                    month: "short",
-                  })}
-                  {s.endedAt ? "" : " · unfinished"}
-                </Text>
-              </View>
-              <Text variant="mono" color="accent">
-                {formatDistance(s.distance || 0)}
-              </Text>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </View>
       )}
 

@@ -9,8 +9,14 @@ export const sessions = sqliteTable("sessions", {
   name: text("name").notNull(),
   startedAt: text("started_at").notNull(),
   endedAt: text("ended_at"),
+  /** JSON: Coordinate[][] — one array per tracked segment (a pause splits it). */
   pathJson: text("path_json").notNull().default("[]"),
+  /** Metres, gap-aware running total. */
   distance: real("distance").default(0),
+  /** Total time spent paused (manual + auto), in ms. */
+  pausedMs: real("paused_ms").default(0),
+  /** Time spent actually walking, in ms — the headline "moving time". */
+  movingMs: real("moving_ms").default(0),
   isLive: integer("is_live", { mode: "boolean" }).default(true),
   createdAt: text("created_at").notNull(),
 });

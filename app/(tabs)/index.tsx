@@ -12,15 +12,22 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { FontAwesome } from "@expo/vector-icons";
 
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+
 import { Text } from "@/components/ui/Text";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
+import { RecordButton } from "@/components/ui/RecordButton";
 import { ThemeModeProvider } from "@/components/ui/ThemeContext";
 import { WebMap, WebMapHandle, WebMapMarker } from "@/components/ui/WebMap";
+import {
+  RecordSummarySheet,
+  CrawlSummary,
+} from "@/components/RecordSummarySheet";
 import { themes, space, radius, fonts, typeScale, elevation } from "@/constants/theme";
 import { useSession } from "@/services/session";
 import {
+  Coordinate,
   formatDistance,
   formatDuration,
   requestLocationPermission,
@@ -82,22 +89,28 @@ export default function MapScreen() {
   const {
     isTracking,
     isPaused,
+    autoPaused,
+    sessionName,
     path,
+    segments,
     distance,
     elapsedSeconds,
+    movingSeconds,
     currentLocation,
     error,
     startSession,
     stopSession,
+    discardSession,
     pauseSession,
     resumeSession,
   } = useSession();
 
+  const [showSummary, setShowSummary] = useState(false);
+  const [summary, setSummary] = useState<CrawlSummary | null>(null);
+
   const [venues, setVenues] = useState<MockVenue[]>([]);
   const [selectedVenue, setSelectedVenue] = useState<string | null>(null);
-  const [myLocation, setMyLocation] = useState<{ latitude: number; longitude: number } | null>(
-    null
-  );
+  const [myLocation, setMyLocation] = useState<Coordinate | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
@@ -173,19 +186,39 @@ export default function MapScreen() {
     setVenues(generateMockVenues(fresh.latitude, fresh.longitude));
   };
 
-  const handleStartStop = async () => {
-    if (isTracking) {
-      Alert.alert(
-        "End this crawl?",
-        `${formatDistance(distance)} on foot over ${formatDuration(elapsedSeconds)}.`,
-        [
-          { text: "Keep going", style: "cancel" },
-          { text: "End & save", style: "destructive", onPress: () => stopSession() },
-        ]
-      );
-    } else {
-      await startSession();
-    }
+  // Keep the screen on while a crawl is recording.
+  useEffect(() => {
+    if (!isTracking) return;
+    activateKeepAwakeAsync("crawl").catch(() => {});
+    return () => {
+      deactivateKeepAwake("crawl").catch(() => {});
+    };
+  }, [isTracking]);
+
+  const handleStopRequest = () => {
+    setSummary({
+      distance,
+      movingSeconds,
+      elapsedSeconds,
+      points: path.length,
+    });
+    pauseSession(); // freeze GPS/battery while the save sheet is open
+    setShowSummary(true);
+  };
+
+  const handleSave = (name: string) => {
+    setShowSummary(false);
+    stopSession(name);
+  };
+
+  const handleResume = () => {
+    setShowSummary(false);
+    resumeSession();
+  };
+
+  const handleDiscard = () => {
+    setShowSummary(false);
+    discardSession();
   };
 
   const executeMapPinpoint = (placeName: string, lat: number, lon: number) => {
@@ -261,6 +294,24 @@ export default function MapScreen() {
   };
 
   const showRadar = !isTracking && venues.length > 0;
+  // Before a crawl, the session has no fix yet — fall back to the map's.
+  const hasFix = !!currentLocation || !!myLocation;
+
+  const gps = (() => {
+    const a = currentLocation?.accuracy ?? myLocation?.accuracy;
+    if (a == null) return { color: c.textMuted };
+    if (a <= 20) return { color: "#7FB08A" };
+    if (a <= 50) return { color: c.accent };
+    return { color: "#E4796F" };
+  })();
+
+  const status = !isTracking
+    ? "GPS"
+    : autoPaused
+      ? "AUTO-PAUSED"
+      : isPaused
+        ? "PAUSED"
+        : "REC";
 
   const mapMarkers = useMemo<WebMapMarker[]>(() => {
     const list: WebMapMarker[] = [];
@@ -291,11 +342,11 @@ export default function MapScreen() {
       <View style={[styles.container, { backgroundColor: c.bg }]}>
         <StatusBar style="light" />
 
-        <View style={StyleSheet.absoluteFill}>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 0 }]}>
           <WebMap
             ref={mapRef}
             initialRegion={initialRegion}
-            path={path}
+            segments={segments}
             markers={mapMarkers}
             userLocation={myLocation}
             accent={c.accent}
@@ -305,46 +356,18 @@ export default function MapScreen() {
           />
         </View>
 
-        {/* Live stats */}
-        {isTracking && (
-          <View style={[styles.liveOverlay, { bottom: insets.bottom + 120 }]} pointerEvents="none">
-            <Card style={{ paddingVertical: space.md }}>
-              <View style={styles.liveRow}>
-                {[
-                  { v: formatDistance(distance), l: "DISTANCE" },
-                  { v: formatDuration(elapsedSeconds), l: "TIME" },
-                  { v: String(path.length), l: "POINTS" },
-                ].map((s, i) => (
-                  <React.Fragment key={s.l}>
-                    {i > 0 && <View style={[styles.liveDivider, { backgroundColor: c.border }]} />}
-                    <View style={styles.liveStat}>
-                      <Text style={{ fontFamily: fonts.displayBold, fontSize: 19, color: c.accent }}>
-                        {s.v}
-                      </Text>
-                      <Text variant="label" color="muted">
-                        {s.l}
-                      </Text>
-                    </View>
-                  </React.Fragment>
-                ))}
-              </View>
-            </Card>
-          </View>
-        )}
-
-        {isTracking && !isPaused && (
-          <View
-            style={[
-              styles.pulse,
-              { top: insets.top + 12, backgroundColor: c.surface, borderColor: c.border },
-            ]}
-          >
-            <View style={styles.pulseDot} />
-            <Text variant="label" style={{ color: "#E4796F" }}>
-              LIVE
-            </Text>
-          </View>
-        )}
+        {/* Status + GPS chip (top-right) */}
+        <View
+          style={[
+            styles.pulse,
+            { top: insets.top + 12, backgroundColor: c.surface, borderColor: c.border },
+          ]}
+        >
+          <View style={[styles.pulseDot, { backgroundColor: gps.color }]} />
+          <Text variant="label" style={{ color: gps.color }}>
+            {status}
+          </Text>
+        </View>
 
         {/* Header + search */}
         {!isTracking && (
@@ -452,21 +475,72 @@ export default function MapScreen() {
             </View>
           )}
 
+          {isTracking && (
+            <View style={styles.statsStrip}>
+              <Card style={{ paddingVertical: space.md }}>
+                <View style={styles.statsRow}>
+                  {[
+                    { v: formatDuration(movingSeconds), l: "MOVING" },
+                    { v: formatDistance(distance), l: "DISTANCE" },
+                    { v: formatDuration(elapsedSeconds), l: "TOTAL" },
+                  ].map((s, i) => (
+                    <React.Fragment key={s.l}>
+                      {i > 0 && (
+                        <View style={[styles.statDivider, { backgroundColor: c.border }]} />
+                      )}
+                      <View style={styles.statCell}>
+                        <Text
+                          style={{
+                            fontFamily: fonts.displayBold,
+                            fontSize: i === 0 ? 24 : 18,
+                            color: i === 0 ? c.accent : c.textPrimary,
+                          }}
+                        >
+                          {s.v}
+                        </Text>
+                        <Text variant="label" color="muted">
+                          {s.l}
+                        </Text>
+                      </View>
+                    </React.Fragment>
+                  ))}
+                </View>
+              </Card>
+            </View>
+          )}
+
+          {isTracking && isPaused && (
+            <View style={styles.pausedNote}>
+              <Text variant="caption" color="muted" align="center">
+                {autoPaused
+                  ? "Auto-paused — start walking to pick back up"
+                  : "Paused"}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.controls}>
-            {isTracking && (
-              <Button
-                title={isPaused ? "Resume" : "Pause"}
-                onPress={isPaused ? resumeSession : pauseSession}
-                variant="secondary"
-              />
+            {!isTracking ? (
+              <View style={{ alignItems: "center", gap: space.sm }}>
+                <RecordButton
+                  kind="start"
+                  onPress={() => startSession()}
+                  disabled={!hasFix}
+                />
+                <Text variant="label" color={hasFix ? "accent" : "muted"}>
+                  {hasFix ? "START" : "FINDING GPS…"}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.cluster}>
+                <RecordButton
+                  kind={isPaused ? "resume" : "pause"}
+                  size={56}
+                  onPress={isPaused ? resumeSession : pauseSession}
+                />
+                <RecordButton kind="stop" size={64} onPress={handleStopRequest} />
+              </View>
             )}
-            <Button
-              title={isTracking ? "End crawl" : "Start a crawl"}
-              onPress={handleStartStop}
-              size="lg"
-              fullWidth
-              style={{ flex: 1 }}
-            />
           </View>
         </View>
 
@@ -477,6 +551,15 @@ export default function MapScreen() {
             </Text>
           </View>
         )}
+
+        <RecordSummarySheet
+          visible={showSummary}
+          summary={summary}
+          defaultName={sessionName}
+          onSave={handleSave}
+          onResume={handleResume}
+          onDiscard={handleDiscard}
+        />
       </View>
     </ThemeModeProvider>
   );
@@ -523,21 +606,29 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
+    zIndex: 20,
   },
   controls: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: space.md,
+    justifyContent: "center",
     paddingHorizontal: space.xl,
   },
-  liveOverlay: {
-    position: "absolute",
-    left: space.md,
-    right: space.md,
+  cluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.xl,
   },
-  liveRow: { flexDirection: "row", alignItems: "center" },
-  liveStat: { flex: 1, alignItems: "center", gap: 2 },
-  liveDivider: { width: StyleSheet.hairlineWidth, height: 30 },
+  statsStrip: {
+    marginHorizontal: space.md,
+    marginBottom: space.md,
+  },
+  statsRow: { flexDirection: "row", alignItems: "center" },
+  statCell: { flex: 1, alignItems: "center", gap: 2 },
+  statDivider: { width: StyleSheet.hairlineWidth, height: 34 },
+  pausedNote: {
+    alignSelf: "center",
+    marginBottom: space.sm,
+  },
   pulse: {
     position: "absolute",
     right: space.md,
@@ -548,6 +639,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
+    zIndex: 20,
   },
   pulseDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#E4796F" },
   radarCard: { width: 210 },
@@ -560,5 +652,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(228,121,111,0.4)",
     padding: space.md,
+    zIndex: 20,
   },
 });
