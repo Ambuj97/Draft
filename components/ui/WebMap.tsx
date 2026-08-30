@@ -145,10 +145,19 @@ function buildHtml(region: Region, accent: string): string {
     return Math.max(3, Math.min(19, z));
   }
   window.__animate = function (r) {
-    map.flyTo([r.latitude, r.longitude], zoomForDelta(r.latitudeDelta), {
-      duration: (r.duration || 600) / 1000
-    });
+    var latlng = [r.latitude, r.longitude];
+    var z = zoomForDelta(r.latitudeDelta);
+    if (!r.duration) {
+      map.setView(latlng, z);
+    } else {
+      map.flyTo(latlng, z, { duration: r.duration / 1000 });
+    }
   };
+
+  // The WebView often reports its final size a beat after first paint;
+  // recompute so tiles and centering aren't based on a 0-height container.
+  map.whenReady(function () { map.invalidateSize(false); });
+  setTimeout(function () { map.invalidateSize(false); }, 300);
 
   send({ type: 'ready' });
 </script>

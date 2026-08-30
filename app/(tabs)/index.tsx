@@ -25,6 +25,7 @@ import {
   formatDuration,
   requestLocationPermission,
   getCurrentPosition,
+  getLastKnownPosition,
 } from "@/services/location";
 
 const c = themes.night;
@@ -143,15 +144,33 @@ export default function MapScreen() {
 
   const handleMapReady = async () => {
     const granted = await requestLocationPermission();
-    if (!granted) return;
-    const pos = await getCurrentPosition();
-    if (!pos) return;
-    setMyLocation(pos);
+    if (!granted) {
+      console.warn("[Crawl] location permission not granted — map stays at default");
+      return;
+    }
+
+    // Snap to the cached fix immediately so the map doesn't sit on London.
+    const cached = await getLastKnownPosition();
+    if (cached) {
+      setMyLocation(cached);
+      mapRef.current?.animateToRegion(
+        { latitude: cached.latitude, longitude: cached.longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 },
+        0
+      );
+    }
+
+    // Then refine with a real fix (balanced accuracy resolves fast indoors).
+    const fresh = (await getCurrentPosition("balanced")) ?? cached;
+    if (!fresh) {
+      console.warn("[Crawl] could not resolve a location fix");
+      return;
+    }
+    setMyLocation(fresh);
     mapRef.current?.animateToRegion(
-      { latitude: pos.latitude, longitude: pos.longitude, latitudeDelta: 0.008, longitudeDelta: 0.008 },
-      800
+      { latitude: fresh.latitude, longitude: fresh.longitude, latitudeDelta: 0.008, longitudeDelta: 0.008 },
+      cached ? 700 : 0
     );
-    setVenues(generateMockVenues(pos.latitude, pos.longitude));
+    setVenues(generateMockVenues(fresh.latitude, fresh.longitude));
   };
 
   const handleStartStop = async () => {
