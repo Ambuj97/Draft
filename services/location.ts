@@ -17,21 +17,42 @@ export async function requestLocationPermission(): Promise<boolean> {
   return status === "granted";
 }
 
+function toCoordinate(location: Location.LocationObject): Coordinate {
+  return {
+    latitude: location.coords.latitude,
+    longitude: location.coords.longitude,
+    timestamp: location.timestamp,
+    altitude: location.coords.altitude,
+    speed: location.coords.speed,
+  };
+}
+
 /**
- * Get the current position as a Coordinate.
+ * Get a fresh position fix. "balanced" is much faster than "high" indoors and
+ * is plenty for centering a map; use "high" for path recording.
  */
-export async function getCurrentPosition(): Promise<Coordinate | null> {
+export async function getCurrentPosition(
+  accuracy: "balanced" | "high" = "high"
+): Promise<Coordinate | null> {
   try {
     const location = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
+      accuracy:
+        accuracy === "high" ? Location.Accuracy.High : Location.Accuracy.Balanced,
     });
-    return {
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-      timestamp: location.timestamp,
-      altitude: location.coords.altitude,
-      speed: location.coords.speed,
-    };
+    return toCoordinate(location);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Last cached fix from the OS — returns instantly (or null). Good for an
+ * immediate first guess while a fresh fix is still resolving.
+ */
+export async function getLastKnownPosition(): Promise<Coordinate | null> {
+  try {
+    const location = await Location.getLastKnownPositionAsync();
+    return location ? toCoordinate(location) : null;
   } catch {
     return null;
   }
