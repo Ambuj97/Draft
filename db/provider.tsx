@@ -1,9 +1,12 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { db, initializeDatabase } from "./client";
+import React, { createContext, useContext } from "react";
+import { useMigrations } from "drizzle-orm/expo-sqlite/migrator";
+import { db } from "./client";
+import migrations from "./migrations/migrations";
 
 type DatabaseContextType = {
   db: typeof db;
   isReady: boolean;
+  error?: Error;
 };
 
 const DatabaseContext = createContext<DatabaseContextType>({
@@ -12,32 +15,26 @@ const DatabaseContext = createContext<DatabaseContextType>({
 });
 
 /**
- * Provides the Drizzle database instance to the component tree.
- * Initializes tables on mount and exposes a loading state.
+ * Runs pending migrations on mount and exposes the db once they're applied.
+ * `isReady` stays false until migrations succeed — screens gate their queries
+ * on it.
  */
 export function DatabaseProvider({ children }: { children: React.ReactNode }) {
-  const [isReady, setIsReady] = useState(false);
+  const { success, error } = useMigrations(db, migrations);
 
-  useEffect(() => {
-    initializeDatabase()
-      .then(() => setIsReady(true))
-      .catch((err) => {
-        console.error("Failed to initialize database:", err);
-        // Still set ready so app doesn't hang — tables may already exist
-        setIsReady(true);
-      });
-  }, []);
+  if (error) {
+    console.error("[db] migration failed:", error);
+  }
 
   return (
-    <DatabaseContext.Provider value={{ db, isReady }}>
+    <DatabaseContext.Provider
+      value={{ db, isReady: success, error: error ?? undefined }}
+    >
       {children}
     </DatabaseContext.Provider>
   );
 }
 
-/**
- * Hook to access the database instance and readiness state.
- */
 export function useDatabase() {
   const context = useContext(DatabaseContext);
   if (!context) {
