@@ -1,41 +1,46 @@
 /**
- * Draft — Brand Color System
- * "Liquid Glass" aesthetic: Deep Amber, Slate Grey, Foam White
+ * @deprecated Legacy flat color map. New code should import from
+ * `@/constants/theme` and read `useTheme()` colors instead.
+ *
+ * These keys are repointed onto the "Taproom" paper palette so screens and
+ * components that still reference `Colors.*` stay legible until they're
+ * migrated to the theme system in their feature branches.
  */
+import { palette } from "./theme";
 
 const Colors = {
-  // Primary — Deep Amber
-  primary: "#cc6f00", // Brighter amber
-  primaryLight: "#f59e0b", // High contrast gold/amber
-  primaryDark: "#985000",
-  primaryGlow: "rgba(204, 111, 0, 0.4)",
+  // Amber accent
+  primary: palette.amber,
+  primaryLight: palette.amber,
+  primaryDark: palette.rust,
+  primaryGlow: "rgba(194, 65, 12, 0.12)",
 
-  // Background — Slate Grey
-  background: "#111318",
-  surface: "#1a1d24",
-  surfaceElevated: "#252830",
-  surfaceBorder: "rgba(255, 248, 240, 0.06)",
+  // Surfaces (paper)
+  background: palette.paper,
+  surface: palette.foam,
+  surfaceElevated: palette.foam,
+  surfaceBorder: "rgba(27, 23, 18, 0.10)",
 
-  // Text — Foam White
-  text: "#FFF8F0",
-  textSecondary: "#9098a8",
-  textMuted: "#6b7080",
+  // Text (ink)
+  text: palette.ink,
+  textSecondary: palette.inkSoft,
+  textMuted: palette.inkMuted,
 
-  // Glass effects
-  glass: "rgba(25, 30, 40, 0.65)", // More translucent for better blur
-  glassBorder: "rgba(255, 248, 240, 0.12)", // Slightly brighter border for crisp edge
-  glassHighlight: "rgba(255, 248, 240, 0.06)",
+  // Legacy "glass" tokens → solid paper equivalents
+  glass: palette.foam,
+  glassBorder: "rgba(27, 23, 18, 0.14)",
+  glassHighlight: "rgba(255, 255, 255, 0.5)",
 
   // Accents
-  success: "#34d399",
-  warning: "#fbbf24",
-  danger: "#f87171",
+  success: palette.success,
+  warning: palette.warning,
+  danger: palette.danger,
 
   // Tab bar
-  tabBarBackground: "rgba(17, 19, 26, 0.85)", // Floating island dark style
-  tabBarBorder: "rgba(255, 248, 240, 0.1)",
-  tabBarActive: "#f59e0b",
-  tabBarInactive: "#6b7080",
+  tabBarBackground: palette.foam,
+  tabBarBorder: "rgba(27, 23, 18, 0.12)",
+  tabBarActive: palette.amber,
+  tabBarInactive: palette.inkMuted,
 };
 
 export default Colors;

@@ -1,10 +1,18 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TextInput, Alert, KeyboardAvoidingView, Platform } from "react-native";
+import {
+  View,
+  StyleSheet,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
 import { useRouter } from "expo-router";
-import { GradientBackground } from "@/components/ui/GradientBackground";
+import { Screen } from "@/components/ui/Screen";
+import { Text } from "@/components/ui/Text";
+import { Field } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/services/auth";
-import Colors from "@/constants/Colors";
+import { space } from "@/constants/theme";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -15,118 +23,96 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email.trim() || !handle.trim()) {
-      Alert.alert("Missing Fields", "Please enter both an email and a handle.");
+      Alert.alert("Missing details", "Enter both an email and a handle.");
       return;
     }
 
     setIsSubmitting(true);
     try {
       await signIn(email.trim(), handle.trim());
-      router.replace("/(tabs)"); // Navigate to main app
+      router.replace("/(tabs)");
     } catch (err) {
-      Alert.alert("Error", "Failed to sign in. " + err);
+      Alert.alert("Couldn't sign in", String(err));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <GradientBackground>
-      <KeyboardAvoidingView 
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+    <Screen clearsTabBar={false}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.content}>
-          <Text style={styles.logo}>🍺 Draft</Text>
-          <Text style={styles.tagline}>Join the local beer community.</Text>
+          <View style={styles.masthead}>
+            <Text variant="label" color="accent">
+              EST. 2026
+            </Text>
+            <Text variant="display" style={{ marginTop: space.sm }}>
+              Draft
+            </Text>
+            <Text
+              variant="body"
+              color="secondary"
+              italic
+              style={{ marginTop: space.xs }}
+            >
+              A field journal for the beer you chase.
+            </Text>
+          </View>
 
           <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email address</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="you@example.com"
-                placeholderTextColor={Colors.textMuted}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                value={email}
-                onChangeText={setEmail}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Choose a Handle</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="@beerlover"
-                placeholderTextColor={Colors.textMuted}
-                autoCapitalize="none"
-                value={handle}
-                onChangeText={setHandle}
-              />
-            </View>
-
+            <Field
+              label="Email"
+              placeholder="you@example.com"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoComplete="email"
+              value={email}
+              onChangeText={setEmail}
+            />
+            <Field
+              label="Handle"
+              placeholder="beerlover"
+              autoCapitalize="none"
+              autoComplete="username"
+              value={handle}
+              onChangeText={setHandle}
+              hint="How you'll show up in the Taproom."
+            />
             <Button
-              title={isSubmitting ? "Signing in..." : "Enter the Taproom"}
+              title={isSubmitting ? "Signing in…" : "Enter the Taproom"}
               onPress={handleLogin}
-              disabled={isSubmitting}
+              loading={isSubmitting}
               size="lg"
-              style={styles.submitBtn}
+              fullWidth
+              style={{ marginTop: space.sm }}
             />
           </View>
+
+          <Text variant="caption" color="muted" align="center" style={styles.legal}>
+            You must be of legal drinking age to use Draft.
+          </Text>
         </View>
       </KeyboardAvoidingView>
-    </GradientBackground>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  flex: { flex: 1 },
   content: {
     flex: 1,
     justifyContent: "center",
-    paddingHorizontal: 24,
   },
-  logo: {
-    fontSize: 48,
-    fontWeight: "800",
-    color: Colors.text,
-    letterSpacing: -1,
-    textAlign: "center",
-  },
-  tagline: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    marginTop: 8,
-    marginBottom: 48,
+  masthead: {
+    marginBottom: space.x2,
   },
   form: {
-    gap: 20,
+    gap: space.lg,
   },
-  inputGroup: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  input: {
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: Colors.text,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-  },
-  submitBtn: {
-    marginTop: 12,
+  legal: {
+    marginTop: space.x2,
   },
 });

@@ -1,21 +1,34 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   View,
-  Text,
   StyleSheet,
   Alert,
-  Platform,
-  Dimensions,
   ScrollView,
   TextInput,
   Pressable,
   Keyboard,
 } from "react-native";
-import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GradientBackground } from "@/components/ui/GradientBackground";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { StatusBar } from "expo-status-bar";
+import Constants from "expo-constants";
+import { FontAwesome } from "@expo/vector-icons";
+
+// react-native-maps has no native module in Expo Go — only load it in a
+// dev/standalone build, and show a placeholder otherwise.
+const MAPS_AVAILABLE = Constants.executionEnvironment !== "storeClient";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const RNMaps = MAPS_AVAILABLE ? require("react-native-maps") : null;
+const MapView: any = RNMaps?.default;
+const Polyline: any = RNMaps?.Polyline;
+const Marker: any = RNMaps?.Marker;
+const PROVIDER_GOOGLE: any = RNMaps?.PROVIDER_GOOGLE;
+
+import { Text } from "@/components/ui/Text";
+import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Tag } from "@/components/ui/Tag";
+import { ThemeModeProvider } from "@/components/ui/ThemeContext";
+import { themes, space, radius, fonts, typeScale, elevation } from "@/constants/theme";
 import { useSession } from "@/services/session";
 import {
   formatDistance,
@@ -23,8 +36,8 @@ import {
   requestLocationPermission,
   getCurrentPosition,
 } from "@/services/location";
-import { FontAwesome } from "@expo/vector-icons";
-import Colors from "@/constants/Colors";
+
+const c = themes.night;
 
 type MockVenue = {
   id: string;
@@ -47,9 +60,8 @@ const VENUE_NAMES = [
 
 function generateMockVenues(lat: number, lng: number): MockVenue[] {
   return VENUE_NAMES.map((name, i) => {
-    // Generate pseudorandom small offsets
-    const latOffset = (Math.sin(i * 13) * 0.015) - 0.0075;
-    const lngOffset = (Math.cos(i * 17) * 0.015) - 0.0075;
+    const latOffset = Math.sin(i * 13) * 0.015 - 0.0075;
+    const lngOffset = Math.cos(i * 17) * 0.015 - 0.0075;
     return {
       id: `v_${i}`,
       name,
@@ -61,21 +73,20 @@ function generateMockVenues(lat: number, lng: number): MockVenue[] {
   });
 }
 
-const { width } = Dimensions.get("window");
-
 /**
- * Map Screen — "The Stumble Path"
- * Live GPS tracking with map, session controls, and stats.
+ * Crawl — the live map ("The Stumble Path").
+ * Restyled to the night palette; the GPS engine rebuild lands in feat/crawl-tracking.
  */
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
-  const mapRef = useRef<MapView>(null);
-  const [initialRegion, setInitialRegion] = useState({
+  const mapRef = useRef<any>(null);
+  const [initialRegion] = useState({
     latitude: 51.5074,
     longitude: -0.1278,
     latitudeDelta: 0.01,
     longitudeDelta: 0.01,
   });
+
   const {
     isTracking,
     isPaused,
@@ -97,14 +108,13 @@ export default function MapScreen() {
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
-  // Debounced Auto-complete prediction fetching
+  // Debounced autocomplete
   useEffect(() => {
     if (!searchQuery.trim() || !isSearchFocused) {
       setSearchSuggestions([]);
       return;
     }
-
-    const delayDebounceFn = setTimeout(async () => {
+    const debounce = setTimeout(async () => {
       try {
         const response = await fetch(
           `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
@@ -117,15 +127,11 @@ export default function MapScreen() {
       } catch (err) {
         console.warn("Autocomplete fetch failed", err);
       }
-    }, 600); // 600ms debounce to respect free layer limits
-
-    return () => clearTimeout(delayDebounceFn);
+    }, 600);
+    return () => clearTimeout(debounce);
   }, [searchQuery, isSearchFocused]);
 
-  // Remove the old mount-time useEffect that fired before map was ready
-  // and handle it in onMapReady instead.
-
-  // Center map on current location during tracking
+  // Follow current location while tracking
   useEffect(() => {
     if (currentLocation && mapRef.current) {
       mapRef.current.animateToRegion(
@@ -143,15 +149,11 @@ export default function MapScreen() {
   const handleStartStop = async () => {
     if (isTracking) {
       Alert.alert(
-        "End Session?",
-        `You've covered ${formatDistance(distance)} in ${formatDuration(elapsedSeconds)}. Save this session?`,
+        "End this crawl?",
+        `${formatDistance(distance)} on foot over ${formatDuration(elapsedSeconds)}.`,
         [
-          { text: "Keep Going", style: "cancel" },
-          {
-            text: "End & Save",
-            style: "destructive",
-            onPress: () => stopSession(),
-          },
+          { text: "Keep going", style: "cancel" },
+          { text: "End & save", style: "destructive", onPress: () => stopSession() },
         ]
       );
     } else {
@@ -160,35 +162,28 @@ export default function MapScreen() {
   };
 
   const executeMapPinpoint = (placeName: string, lat: number, lon: number) => {
-    mapRef.current?.animateToRegion({
-      latitude: lat,
-      longitude: lon,
-      latitudeDelta: 0.005,
-      longitudeDelta: 0.005,
-    }, 1000);
-
+    mapRef.current?.animateToRegion(
+      { latitude: lat, longitude: lon, latitudeDelta: 0.005, longitudeDelta: 0.005 },
+      1000
+    );
     const searchedVenue: MockVenue = {
-      id: 'search-target',
+      id: "search-target",
       name: placeName,
       latitude: lat,
       longitude: lon,
       distance: "0m",
       activeThreads: Math.floor(Math.random() * 20) + 1,
     };
-
     setVenues([searchedVenue, ...generateMockVenues(lat, lon)]);
-    setSelectedVenue('search-target');
+    setSelectedVenue("search-target");
   };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-    
-    // If we have suggestions, just pick the top one automatically to prevent double fetching
     if (searchSuggestions.length > 0) {
       handleSuggestionSelect(searchSuggestions[0]);
       return;
     }
-
     setIsSearching(true);
     try {
       const response = await fetch(
@@ -198,22 +193,19 @@ export default function MapScreen() {
         { headers: { "User-Agent": "DraftBeerApp/1.0" } }
       );
       const results = await response.json();
-
       if (results && results.length > 0) {
-        const topResult = results[0];
-        const latitude = parseFloat(topResult.lat);
-        const longitude = parseFloat(topResult.lon);
-        const rawName = topResult.name || topResult.display_name.split(',')[0];
-        executeMapPinpoint(rawName, latitude, longitude);
+        const top = results[0];
+        executeMapPinpoint(
+          top.name || top.display_name.split(",")[0],
+          parseFloat(top.lat),
+          parseFloat(top.lon)
+        );
       } else {
         Alert.alert("Not found", "Couldn't find that location on the map.");
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn("Geocoding exception:", err);
-      Alert.alert(
-        "Search Error", 
-        "Failed to connect to the search service. Please check your internet connection."
-      );
+      Alert.alert("Search error", "Couldn't reach the search service. Check your connection.");
     } finally {
       setIsSearching(false);
       setIsSearchFocused(false);
@@ -222,13 +214,11 @@ export default function MapScreen() {
 
   const handleSuggestionSelect = (suggestion: any) => {
     Keyboard.dismiss();
-    const lat = parseFloat(suggestion.lat);
-    const lon = parseFloat(suggestion.lon);
-    const rawName = suggestion.name || suggestion.display_name.split(',')[0];
+    const rawName = suggestion.name || suggestion.display_name.split(",")[0];
     setSearchQuery(rawName);
     setIsSearchFocused(false);
     setSearchSuggestions([]);
-    executeMapPinpoint(rawName, lat, lon);
+    executeMapPinpoint(rawName, parseFloat(suggestion.lat), parseFloat(suggestion.lon));
   };
 
   const handleClearSearch = () => {
@@ -238,248 +228,262 @@ export default function MapScreen() {
     setIsSearchFocused(false);
   };
 
-  return (
-    <GradientBackground>
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        {/* Map Layer (Back) */}
-        <View style={StyleSheet.absoluteFillObject}>
-          <MapView
-            ref={mapRef}
-            style={styles.map}
-            provider={PROVIDER_GOOGLE}
-            showsUserLocation
-            showsMyLocationButton={true}
-            customMapStyle={darkMapStyle}
-            initialRegion={initialRegion}
-            onMapReady={async () => {
-              const granted = await requestLocationPermission();
-              if (granted) {
-                const pos = await getCurrentPosition();
-                if (pos && mapRef.current) {
-                  mapRef.current.animateToRegion({
-                    latitude: pos.latitude,
-                    longitude: pos.longitude,
-                    latitudeDelta: 0.008,
-                    longitudeDelta: 0.008,
-                  }, 800);
-                  setVenues(generateMockVenues(pos.latitude, pos.longitude));
-                }
-              }
-            }}
-            onPress={() => {
-              // Tap background to clear suggestion flyout state and keyboard
-              Keyboard.dismiss();
-              setIsSearchFocused(false);
-            }}
-            onPanDrag={() => {
-              Keyboard.dismiss();
-              setIsSearchFocused(false);
-            }}
+  const showRadar = !isTracking && venues.length > 0;
+
+  if (!MAPS_AVAILABLE) {
+    return (
+      <ThemeModeProvider mode="night">
+        <View style={[styles.container, styles.placeholder, { backgroundColor: c.bg }]}>
+          <StatusBar style="light" />
+          <FontAwesome name="map-o" size={44} color={c.accent} style={{ marginBottom: space.lg }} />
+          <Text variant="title" style={{ color: c.textPrimary }}>
+            Crawl
+          </Text>
+          <Text
+            variant="body"
+            color="secondary"
+            align="center"
+            style={{ marginTop: space.sm, maxWidth: 300 }}
           >
-            {/* Path polyline */}
-            {path.length > 1 && (
-              <Polyline
-                coordinates={path.map((p) => ({
-                  latitude: p.latitude,
-                  longitude: p.longitude,
-                }))}
-                strokeColor={Colors.primaryLight}
-                strokeWidth={4}
-                lineDashPattern={[0]}
-              />
-            )}
+            The live map needs a development build — it can't run inside Expo Go.
+            Every other tab works here.
+          </Text>
+          <Text variant="caption" color="muted" align="center" style={{ marginTop: space.lg }}>
+            Coming in the EAS dev-build branch.
+          </Text>
+        </View>
+      </ThemeModeProvider>
+    );
+  }
 
-            {/* Start marker */}
-            {path.length > 0 && (
-              <Marker
-                coordinate={{
-                  latitude: path[0].latitude,
-                  longitude: path[0].longitude,
-                }}
-                title="Start"
-              >
-                <View style={styles.markerStart}>
-                  <Text style={styles.markerText}>🏁</Text>
-                </View>
-              </Marker>
-            )}
+  return (
+    <ThemeModeProvider mode="night">
+      <View style={[styles.container, { backgroundColor: c.bg }]}>
+        <StatusBar style="light" />
 
-            {/* Venues radar pins */}
-            {!isTracking && venues.map((v) => {
-              if (v.id === 'search-target') {
+        <MapView
+          ref={mapRef}
+          style={StyleSheet.absoluteFill}
+          provider={PROVIDER_GOOGLE}
+          showsUserLocation
+          showsMyLocationButton
+          customMapStyle={darkMapStyle}
+          initialRegion={initialRegion}
+          onMapReady={async () => {
+            const granted = await requestLocationPermission();
+            if (!granted) return;
+            const pos = await getCurrentPosition();
+            if (pos && mapRef.current) {
+              mapRef.current.animateToRegion(
+                {
+                  latitude: pos.latitude,
+                  longitude: pos.longitude,
+                  latitudeDelta: 0.008,
+                  longitudeDelta: 0.008,
+                },
+                800
+              );
+              setVenues(generateMockVenues(pos.latitude, pos.longitude));
+            }
+          }}
+          onPress={() => {
+            Keyboard.dismiss();
+            setIsSearchFocused(false);
+          }}
+          onPanDrag={() => {
+            Keyboard.dismiss();
+            setIsSearchFocused(false);
+          }}
+        >
+          {path.length > 1 && (
+            <Polyline
+              coordinates={path.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))}
+              strokeColor={c.accent}
+              strokeWidth={4}
+            />
+          )}
+
+          {path.length > 0 && (
+            <Marker
+              coordinate={{ latitude: path[0].latitude, longitude: path[0].longitude }}
+              title="Start"
+            >
+              <View style={[styles.startPin, { borderColor: c.accent, backgroundColor: c.surface }]}>
+                <Text style={{ fontSize: 15 }}>🏁</Text>
+              </View>
+            </Marker>
+          )}
+
+          {!isTracking &&
+            venues.map((v) => {
+              if (v.id === "search-target") {
                 return (
                   <Marker
                     key={v.id}
                     coordinate={{ latitude: v.latitude, longitude: v.longitude }}
                     onPress={() => setSelectedVenue(v.id)}
                     title={v.name}
+                    anchor={{ x: 0.5, y: 1 }}
                     style={{ zIndex: 999 }}
-                    anchor={{ x: 0.5, y: 1 }} // perfectly points bottom center of box to coord
                   >
-                    <View style={{
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 50,
-                      height: 50,
-                    }}>
-                      {/* Pulse glow behind pin */}
-                      <View style={{
-                         position: 'absolute',
-                         bottom: 6, // sit glow near the bottom point
-                         width: 24, height: 24, borderRadius: 12,
-                         backgroundColor: 'rgba(239, 68, 68, 0.3)',
-                      }} />
-                      <FontAwesome name="map-marker" size={42} color="#ef4444" />
-                    </View>
+                    <FontAwesome name="map-marker" size={40} color={c.accent} />
                   </Marker>
                 );
               }
-              
+              const selected = selectedVenue === v.id;
               return (
                 <Marker
                   key={v.id}
                   coordinate={{ latitude: v.latitude, longitude: v.longitude }}
                   onPress={() => setSelectedVenue(v.id)}
-                  style={{ zIndex: selectedVenue === v.id ? 10 : 1 }}
+                  style={{ zIndex: selected ? 10 : 1 }}
                 >
-                  <View style={[
-                    styles.venueMarker, 
-                    selectedVenue === v.id && styles.venueMarkerSelected
-                  ]}>
-                    <FontAwesome 
-                      name="beer" 
-                      size={14} 
-                      color={selectedVenue === v.id ? "#fff" : Colors.primaryLight} 
-                    />
+                  <View
+                    style={[
+                      styles.venuePin,
+                      { backgroundColor: selected ? c.accent : c.surface, borderColor: c.accent },
+                    ]}
+                  >
+                    <FontAwesome name="beer" size={13} color={selected ? c.accentText : c.accent} />
                   </View>
                 </Marker>
               );
             })}
-          </MapView>
+        </MapView>
 
-          {/* Map overlay — live stats */}
-          {isTracking && (
-            <View style={styles.liveOverlay}>
-              <GlassCard style={styles.liveCard}>
-                <View style={styles.liveStats}>
-                  <View style={styles.liveStat}>
-                    <Text style={styles.liveValue}>
-                      {formatDistance(distance)}
-                    </Text>
-                    <Text style={styles.liveLabel}>Distance</Text>
-                  </View>
-                  <View style={styles.liveDivider} />
-                  <View style={styles.liveStat}>
-                    <Text style={styles.liveValue}>
-                      {formatDuration(elapsedSeconds)}
-                    </Text>
-                    <Text style={styles.liveLabel}>Duration</Text>
-                  </View>
-                  <View style={styles.liveDivider} />
-                  <View style={styles.liveStat}>
-                    <Text style={styles.liveValue}>{path.length}</Text>
-                    <Text style={styles.liveLabel}>Points</Text>
-                  </View>
-                </View>
-              </GlassCard>
-            </View>
-          )}
+        {/* Live stats */}
+        {isTracking && (
+          <View style={[styles.liveOverlay, { bottom: insets.bottom + 120 }]} pointerEvents="none">
+            <Card style={{ paddingVertical: space.md }}>
+              <View style={styles.liveRow}>
+                {[
+                  { v: formatDistance(distance), l: "DISTANCE" },
+                  { v: formatDuration(elapsedSeconds), l: "TIME" },
+                  { v: String(path.length), l: "POINTS" },
+                ].map((s, i) => (
+                  <React.Fragment key={s.l}>
+                    {i > 0 && <View style={[styles.liveDivider, { backgroundColor: c.border }]} />}
+                    <View style={styles.liveStat}>
+                      <Text style={{ fontFamily: fonts.displayBold, fontSize: 19, color: c.accent }}>
+                        {s.v}
+                      </Text>
+                      <Text variant="label" color="muted">
+                        {s.l}
+                      </Text>
+                    </View>
+                  </React.Fragment>
+                ))}
+              </View>
+            </Card>
+          </View>
+        )}
 
-          {/* Pulsing dot indicator */}
-          {isTracking && !isPaused && (
-            <View style={styles.pulseContainer}>
-              <View style={styles.pulseDot} />
-              <Text style={styles.pulseText}>LIVE</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Header & Search Bar (Front) */}
-        <View style={[styles.header, { paddingTop: insets.top + 8, zIndex: 100 }]} pointerEvents="box-none">
-          <View style={styles.titleRow}>
-            <Text style={styles.logo}>🍺 Draft</Text>
-            <Text style={styles.tagline}>
-              {isTracking ? "Live Session" : "The Stumble Path"}
+        {isTracking && !isPaused && (
+          <View
+            style={[
+              styles.pulse,
+              { top: insets.top + 12, backgroundColor: c.surface, borderColor: c.border },
+            ]}
+          >
+            <View style={styles.pulseDot} />
+            <Text variant="label" style={{ color: "#E4796F" }}>
+              LIVE
             </Text>
           </View>
-          
-          <View style={{ position: 'relative', zIndex: 200 }}>
-            <View style={styles.searchContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search a city, area, or pub..."
-                placeholderTextColor={Colors.textMuted}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                onFocus={() => setIsSearchFocused(true)}
-                onSubmitEditing={handleSearch}
-                returnKeyType="search"
-              />
-              
-              {searchQuery.length > 0 ? (
-                <Pressable onPress={handleClearSearch} style={{ paddingHorizontal: 4 }}>
-                  <FontAwesome name="times-circle" size={18} color={Colors.textMuted} style={styles.searchIcon} />
-                </Pressable>
-              ) : isSearching ? (
-                <FontAwesome name="spinner" size={16} color={Colors.textMuted} style={styles.searchIcon} />
-              ) : (
-                <FontAwesome name="search" size={16} color={Colors.textMuted} style={styles.searchIcon} />
+        )}
+
+        {/* Header + search */}
+        {!isTracking && (
+          <View style={[styles.header, { top: insets.top + 8 }]} pointerEvents="box-none">
+            <Text variant="title" style={{ color: c.textPrimary }}>
+              Crawl
+            </Text>
+            <Text variant="caption" color="muted" style={{ marginBottom: space.md }}>
+              The Stumble Path
+            </Text>
+
+            <View style={{ position: "relative", zIndex: 200 }}>
+              <View style={[styles.search, { backgroundColor: c.surface, borderColor: c.border }]}>
+                <FontAwesome name="search" size={14} color={c.textMuted} />
+                <TextInput
+                  style={[typeScale.body, styles.searchInput, { color: c.textPrimary, fontFamily: fonts.sans }]}
+                  placeholder="Search a city, area, or pub…"
+                  placeholderTextColor={c.textMuted}
+                  selectionColor={c.accent}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  onFocus={() => setIsSearchFocused(true)}
+                  onSubmitEditing={handleSearch}
+                  returnKeyType="search"
+                />
+                {searchQuery.length > 0 ? (
+                  <Pressable onPress={handleClearSearch} hitSlop={8}>
+                    <FontAwesome name="times-circle" size={16} color={c.textMuted} />
+                  </Pressable>
+                ) : isSearching ? (
+                  <FontAwesome name="spinner" size={14} color={c.textMuted} />
+                ) : null}
+              </View>
+
+              {isSearchFocused && searchSuggestions.length > 0 && (
+                <View style={[styles.suggestions, { backgroundColor: c.surface, borderColor: c.border }]}>
+                  <ScrollView style={{ maxHeight: 210 }} keyboardShouldPersistTaps="handled">
+                    {searchSuggestions.map((s, idx) => (
+                      <Pressable
+                        key={idx}
+                        onPress={() => handleSuggestionSelect(s)}
+                        style={[styles.suggestionItem, { borderBottomColor: c.hairline }]}
+                      >
+                        <FontAwesome name="map-marker" size={13} color={c.textMuted} />
+                        <Text variant="caption" numberOfLines={1} style={{ flex: 1 }}>
+                          {s.display_name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
               )}
             </View>
-
-            {/* Dropdown Suggestions */}
-            {isSearchFocused && searchSuggestions.length > 0 && (
-              <View style={styles.suggestionsWrapper}>
-                <ScrollView style={styles.suggestionsList} keyboardShouldPersistTaps="handled">
-                  {searchSuggestions.map((s, idx) => (
-                    <Pressable
-                      key={idx}
-                      style={styles.suggestionItem}
-                      onPress={() => handleSuggestionSelect(s)}
-                    >
-                      <FontAwesome name="map-marker" size={14} color={Colors.textMuted} style={{ marginRight: 10 }} />
-                      <Text style={styles.suggestionText} numberOfLines={1}>
-                        {s.display_name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
           </View>
-        </View>
+        )}
 
-        {/* Controls and Radar list */}
-        <View style={styles.controlsLayer}>
-          {!isTracking && venues.length > 0 && (
-            <View style={styles.radarContainer}>
-              <Text style={styles.radarTitle}>Nearby Radar</Text>
-              <View style={styles.scrollWrapper}>
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.radarList}
-                >
-                  {venues.map(v => (
-                    <GlassCard 
-                      key={v.id} 
-                      style={[
-                        styles.venueCard,
-                        selectedVenue === v.id && styles.venueCardSelected
-                      ]}
-                    >
-                      <Text style={styles.venueName}>{v.name}</Text>
-                      <View style={styles.venueMeta}>
-                        <Text style={styles.venueDistance}>{v.distance}</Text>
-                        <View style={styles.venueDot} />
-                        <Text style={styles.venueThreads}>
-                          <FontAwesome name="fire" size={10} color="#f59e0b" /> {v.activeThreads} live
-                        </Text>
-                      </View>
-                    </GlassCard>
-                  ))}
-                </ScrollView>
-              </View>
+        {/* Bottom: radar + controls */}
+        <View style={[styles.bottom, { bottom: insets.bottom + 96 }]} pointerEvents="box-none">
+          {showRadar && (
+            <View style={{ marginBottom: space.md }}>
+              <Text
+                variant="label"
+                color="muted"
+                style={{ marginLeft: space.xl, marginBottom: space.sm }}
+              >
+                NEARBY RADAR
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: space.xl, gap: space.md }}
+              >
+                {venues.map((v) => (
+                  <Card
+                    key={v.id}
+                    accent={selectedVenue === v.id}
+                    style={styles.radarCard}
+                    onPress={() => setSelectedVenue(v.id)}
+                  >
+                    <Text variant="bodyStrong" numberOfLines={1}>
+                      {v.name}
+                    </Text>
+                    <Text variant="caption" color="muted" style={{ marginTop: 2 }}>
+                      {v.distance}
+                    </Text>
+                    <Tag
+                      label={`${v.activeThreads} here now`}
+                      tone="accent"
+                      style={{ marginTop: space.sm }}
+                    />
+                  </Card>
+                ))}
+              </ScrollView>
             </View>
           )}
 
@@ -489,329 +493,140 @@ export default function MapScreen() {
                 title={isPaused ? "Resume" : "Pause"}
                 onPress={isPaused ? resumeSession : pauseSession}
                 variant="secondary"
-                size="md"
-                style={styles.pauseButton}
               />
             )}
             <Button
-              title={isTracking ? "End Session" : "Start a Session"}
+              title={isTracking ? "End crawl" : "Start a crawl"}
               onPress={handleStartStop}
-              variant="primary"
               size="lg"
-              style={styles.mainButton}
+              fullWidth
+              style={{ flex: 1 }}
             />
           </View>
         </View>
 
-        {/* Error display */}
         {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
+          <View style={[styles.errorToast, { bottom: insets.bottom + 88 }]}>
+            <Text variant="caption" style={{ color: c.danger, textAlign: "center" }}>
+              {error}
+            </Text>
           </View>
         )}
       </View>
-    </GradientBackground>
+    </ThemeModeProvider>
   );
 }
 
-// Dark map style for the Liquid Glass aesthetic
 const darkMapStyle = [
-  { elementType: "geometry", stylers: [{ color: "#1a1d24" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#1a1d24" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#6b7080" }] },
-  {
-    featureType: "road",
-    elementType: "geometry",
-    stylers: [{ color: "#252830" }],
-  },
-  {
-    featureType: "road",
-    elementType: "geometry.stroke",
-    stylers: [{ color: "#363a44" }],
-  },
-  {
-    featureType: "water",
-    elementType: "geometry",
-    stylers: [{ color: "#111318" }],
-  },
-  {
-    featureType: "poi",
-    elementType: "geometry",
-    stylers: [{ color: "#1a1d24" }],
-  },
-  {
-    featureType: "poi.park",
-    elementType: "geometry",
-    stylers: [{ color: "#1a2010" }],
-  },
-  {
-    featureType: "transit",
-    elementType: "geometry",
-    stylers: [{ color: "#1a1d24" }],
-  },
+  { elementType: "geometry", stylers: [{ color: "#1b1712" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1b1712" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8a8275" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2b241b" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#3a3227" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#14110d" }] },
+  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#1b1712" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#1e2417" }] },
+  { featureType: "transit", elementType: "geometry", stylers: [{ color: "#1b1712" }] },
 ];
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#111318',
+  container: { flex: 1 },
+  placeholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: space.xl,
   },
   header: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
-    zIndex: 10,
-    paddingBottom: 12,
+    position: "absolute",
+    left: space.xl,
+    right: space.xl,
+    zIndex: 100,
   },
-  titleRow: {
-    marginBottom: 12,
+  search: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    height: 46,
+    ...elevation.card,
   },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(17, 19, 24, 0.85)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    paddingHorizontal: 12,
-    height: 44,
-  },
-  searchInput: {
-    flex: 1,
-    color: Colors.text,
-    fontSize: 15,
-  },
-  searchIcon: {
-    marginLeft: 8,
-  },
-  suggestionsWrapper: {
-    position: 'absolute',
-    top: 50,
+  searchInput: { flex: 1, paddingVertical: 0 },
+  suggestions: {
+    position: "absolute",
+    top: 54,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(17, 19, 24, 0.95)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    overflow: 'hidden',
-    shadowColor: Colors.background,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 15,
-    elevation: 10,
-  },
-  suggestionsList: {
-    maxHeight: 200,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    overflow: "hidden",
+    ...elevation.raised,
   },
   suggestionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  suggestionText: {
-    flex: 1,
-    color: Colors.text,
-    fontSize: 14,
-  },
-  logo: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: Colors.text,
-    letterSpacing: -0.5,
-  },
-  tagline: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginTop: 1,
-    letterSpacing: 0.3,
-    textShadowColor: 'rgba(0, 0, 0, 0.7)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  map: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  markerStart: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(26, 29, 36, 0.9)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: Colors.primaryLight,
-  },
-  markerText: {
-    fontSize: 16,
-  },
-  liveOverlay: {
-    position: "absolute",
-    bottom: 12,
-    left: 12,
-    right: 12,
-  },
-  liveCard: {
-    borderRadius: 16,
-  },
-  liveStats: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-around",
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  liveStat: {
-    alignItems: "center",
-    flex: 1,
-  },
-  liveValue: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: Colors.primaryLight,
-  },
-  liveLabel: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-    marginTop: 2,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-  },
-  liveDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: Colors.glassBorder,
-  },
-  pulseContainer: {
+  bottom: {
     position: "absolute",
-    top: 12,
-    right: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(26, 29, 36, 0.85)",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    gap: 6,
-  },
-  pulseDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#ef4444",
-  },
-  pulseText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#ef4444",
-    letterSpacing: 1,
-  },
-  venueMarker: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(26, 29, 36, 0.9)",
-    borderWidth: 1.5,
-    borderColor: Colors.primaryDark,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  venueMarkerSelected: {
-    backgroundColor: Colors.primary,
-    borderColor: "#fff",
-    transform: [{ scale: 1.1 }],
-  },
-  controlsLayer: {
-    position: "absolute",
-    bottom: 120,
     left: 0,
     right: 0,
-  },
-  radarContainer: {
-    marginBottom: 16,
-  },
-  scrollWrapper: {
-    paddingLeft: 16,
-  },
-  radarTitle: {
-    marginLeft: 20,
-    fontSize: 13,
-    fontWeight: "700",
-    color: Colors.text,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  radarList: {
-    gap: 12,
-    paddingRight: 32,
-  },
-  venueCard: {
-    width: 200,
-    padding: 12,
-  },
-  venueCardSelected: {
-    borderColor: Colors.primaryLight,
-  },
-  venueName: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: Colors.text,
-    marginBottom: 4,
-  },
-  venueMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  venueDistance: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  venueDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: Colors.textMuted,
-  },
-  venueThreads: {
-    fontSize: 12,
-    color: "#f59e0b",
-    fontWeight: "600",
   },
   controls: {
     flexDirection: "row",
-    paddingHorizontal: 40,
-    justifyContent: "center",
     alignItems: "center",
-    gap: 12,
+    gap: space.md,
+    paddingHorizontal: space.xl,
   },
-  pauseButton: {
-    flex: 0.3,
-  },
-  mainButton: {
-    flex: 1,
-    borderRadius: 30,
-    shadowColor: Colors.primaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  errorContainer: {
+  liveOverlay: {
     position: "absolute",
-    bottom: 110,
-    left: 20,
-    right: 20,
-    backgroundColor: "rgba(248, 113, 113, 0.15)",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "rgba(248, 113, 113, 0.3)",
+    left: space.md,
+    right: space.md,
   },
-  errorText: {
-    color: Colors.danger,
-    fontSize: 13,
-    textAlign: "center",
+  liveRow: { flexDirection: "row", alignItems: "center" },
+  liveStat: { flex: 1, alignItems: "center", gap: 2 },
+  liveDivider: { width: StyleSheet.hairlineWidth, height: 30 },
+  pulse: {
+    position: "absolute",
+    right: space.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  pulseDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#E4796F" },
+  startPin: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+  },
+  venuePin: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+  },
+  radarCard: { width: 210 },
+  errorToast: {
+    position: "absolute",
+    left: space.xl,
+    right: space.xl,
+    backgroundColor: "rgba(228,121,111,0.16)",
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(228,121,111,0.4)",
+    padding: space.md,
   },
 });

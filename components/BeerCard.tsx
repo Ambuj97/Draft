@@ -1,8 +1,11 @@
 import React from "react";
-import { View, Text, StyleSheet, Image, Pressable } from "react-native";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { View, StyleSheet, Image } from "react-native";
 import { getLocales } from "expo-localization";
-import Colors from "@/constants/Colors";
+import { Card } from "@/components/ui/Card";
+import { Text } from "@/components/ui/Text";
+import { Tag } from "@/components/ui/Tag";
+import { useTheme } from "@/components/ui/ThemeContext";
+import { space, radius } from "@/constants/theme";
 import type { Beer } from "@/db/schema";
 
 interface BeerCardProps {
@@ -10,152 +13,92 @@ interface BeerCardProps {
   onPress?: () => void;
 }
 
-/**
- * Displays a single beer log entry with name, brewery,
- * ABV, price, rating, and optional photo.
- */
+/** One entry in the Cellar: photo, name, brewery, and metadata tags. */
 export function BeerCard({ beer, onPress }: BeerCardProps) {
-  const currencySymbol = getLocales()[0]?.currencySymbol || "£";
+  const { colors } = useTheme();
+  const currency = getLocales()[0]?.currencySymbol || "£";
 
   return (
-    <Pressable onPress={onPress}>
-      <GlassCard style={styles.card}>
-        <View style={styles.row}>
-          {/* Photo */}
-          {beer.photoUri ? (
-            <Image
-              source={{ uri: beer.photoUri }}
-              style={styles.photo}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.photoPlaceholder}>
-              <Text style={styles.photoEmoji}>🍺</Text>
-            </View>
-          )}
-
-          {/* Details */}
-          <View style={styles.details}>
-            <Text style={styles.name} numberOfLines={1}>
-              {beer.name}
-            </Text>
-            {beer.brewery && (
-              <Text style={styles.brewery} numberOfLines={1}>
-                {beer.brewery}
-              </Text>
-            )}
-
-            <View style={styles.metaRow}>
-              {beer.abv != null && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{beer.abv}%</Text>
-                </View>
-              )}
-              {beer.price != null && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>
-                    {currencySymbol}{beer.price.toFixed(2)}
-                  </Text>
-                </View>
-              )}
-              {beer.rating != null && (
-                <Text style={styles.rating}>
-                  {"★".repeat(beer.rating)}
-                  {"☆".repeat(5 - beer.rating)}
-                </Text>
-              )}
-            </View>
-
-            {beer.venue && (
-              <Text style={styles.venue} numberOfLines={1}>
-                📍 {beer.venue}
-              </Text>
-            )}
+    <Card onPress={onPress} style={{ marginHorizontal: 4 }}>
+      <View style={styles.row}>
+        {beer.photoUri ? (
+          <Image source={{ uri: beer.photoUri }} style={styles.photo} resizeMode="cover" />
+        ) : (
+          <View
+            style={[
+              styles.photo,
+              styles.placeholder,
+              { backgroundColor: colors.accentSoft, borderColor: colors.border },
+            ]}
+          >
+            <Text variant="title">🍺</Text>
           </View>
-        </View>
-
-        {beer.notes && (
-          <Text style={styles.notes} numberOfLines={2}>
-            {beer.notes}
-          </Text>
         )}
-      </GlassCard>
-    </Pressable>
+
+        <View style={styles.details}>
+          <Text variant="bodyStrong" numberOfLines={1}>
+            {beer.name}
+          </Text>
+          {beer.brewery ? (
+            <Text variant="caption" color="secondary" numberOfLines={1} style={{ marginTop: 1 }}>
+              {beer.brewery}
+            </Text>
+          ) : null}
+
+          <View style={styles.tags}>
+            {beer.abv != null ? <Tag label={`${beer.abv}%`} /> : null}
+            {beer.price != null ? (
+              <Tag label={`${currency}${beer.price.toFixed(2)}`} tone="accent" />
+            ) : null}
+            {beer.rating != null ? (
+              <Text variant="caption" color="accent">
+                {"★".repeat(beer.rating)}
+                {"☆".repeat(5 - beer.rating)}
+              </Text>
+            ) : null}
+          </View>
+
+          {beer.venue ? (
+            <Text variant="caption" color="muted" numberOfLines={1} style={{ marginTop: space.xs }}>
+              📍 {beer.venue}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
+      {beer.notes ? (
+        <Text variant="caption" color="secondary" italic numberOfLines={2} style={{ marginTop: space.md }}>
+          {beer.notes}
+        </Text>
+      ) : null}
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    marginBottom: 12,
-  },
   row: {
     flexDirection: "row",
-    gap: 14,
+    gap: space.md,
   },
   photo: {
-    width: 64,
-    height: 64,
-    borderRadius: 14,
+    width: 60,
+    height: 60,
+    borderRadius: radius.md,
   },
-  photoPlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: 14,
-    backgroundColor: "rgba(179, 98, 0, 0.1)",
+  placeholder: {
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.primaryGlow,
-  },
-  photoEmoji: {
-    fontSize: 28,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   details: {
     flex: 1,
     justifyContent: "center",
   },
-  name: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: Colors.text,
-    marginBottom: 2,
-  },
-  brewery: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 6,
-  },
-  metaRow: {
+  tags: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-  },
-  badge: {
-    backgroundColor: "rgba(179, 98, 0, 0.15)",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: Colors.primaryLight,
-  },
-  rating: {
-    fontSize: 12,
-    color: Colors.primaryLight,
-    letterSpacing: 1,
-  },
-  venue: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginTop: 4,
-  },
-  notes: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginTop: 10,
-    lineHeight: 18,
-    fontStyle: "italic",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: space.sm,
   },
 });

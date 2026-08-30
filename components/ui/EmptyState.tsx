@@ -1,7 +1,9 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import Colors from "@/constants/Colors";
+import { space, radius } from "@/constants/theme";
+import { useTheme } from "./ThemeContext";
+import { Text } from "./Text";
 import { Button } from "./Button";
 
 interface EmptyStateProps {
@@ -9,36 +11,45 @@ interface EmptyStateProps {
   title: string;
   subtitle: string;
   ctaLabel?: string;
+  ctaIcon?: React.ComponentProps<typeof FontAwesome>["name"];
   onCtaPress?: () => void;
 }
 
-/**
- * Reusable empty state with a large icon, title, subtitle,
- * and optional call-to-action button.
- */
+/** Centered icon medallion, serif title, muted body, single CTA. */
 export function EmptyState({
   icon,
   title,
   subtitle,
   ctaLabel,
+  ctaIcon,
   onCtaPress,
 }: EmptyStateProps) {
+  const { colors } = useTheme();
+
   return (
     <View style={styles.container}>
-      <View style={styles.iconContainer}>
-        <FontAwesome name={icon} size={36} color={Colors.primaryLight} />
+      <View
+        style={[
+          styles.medallion,
+          { backgroundColor: colors.accentSoft, borderColor: colors.border },
+        ]}
+      >
+        <FontAwesome name={icon} size={30} color={colors.accent} />
       </View>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.subtitle}>{subtitle}</Text>
-      {ctaLabel && onCtaPress && (
-        <Button
-          title={ctaLabel}
-          onPress={onCtaPress}
-          variant="primary"
-          size="md"
-          style={styles.cta}
-        />
-      )}
+      <Text variant="heading" align="center">
+        {title}
+      </Text>
+      <Text
+        variant="body"
+        color="secondary"
+        align="center"
+        style={{ marginTop: space.sm, marginBottom: space.xl }}
+      >
+        {subtitle}
+      </Text>
+      {ctaLabel && onCtaPress ? (
+        <Button title={ctaLabel} onPress={onCtaPress} icon={ctaIcon} />
+      ) : null}
     </View>
   );
 }
@@ -48,34 +59,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 40,
+    paddingHorizontal: space.x2,
   },
-  iconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: "rgba(179, 98, 0, 0.1)",
+  medallion: {
+    width: 76,
+    height: 76,
+    borderRadius: radius.pill,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: Colors.primaryGlow,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.text,
-    textAlign: "center",
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  cta: {
-    minWidth: 200,
+    marginBottom: space.lg,
+    borderWidth: StyleSheet.hairlineWidth,
   },
 });
