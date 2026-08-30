@@ -13,7 +13,7 @@ import { beers, Beer } from "@/db/schema";
 import { desc } from "drizzle-orm";
 import { pickImage, analyzeBeerPhoto, BeerExtraction } from "@/services/vision";
 import { space } from "@/constants/theme";
-import { getLocales } from "expo-localization";
+import { useCurrency } from "@/services/currency";
 
 /**
  * Cellar — the tasting log. Scan a label/receipt, confirm the details,
@@ -21,7 +21,7 @@ import { getLocales } from "expo-localization";
  */
 export default function CellarScreen() {
   const { db, isReady } = useDatabase();
-  const currency = getLocales()[0]?.currencySymbol || "£";
+  const { symbol: currency, code: currencyCode } = useCurrency();
 
   const [beerList, setBeerList] = useState<Beer[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -73,7 +73,7 @@ export default function CellarScreen() {
         brewery: data.brewery || null,
         abv: data.abv ? parseFloat(data.abv) : null,
         price: data.price ? parseFloat(data.price) : null,
-        currency: "GBP",
+        currency: currencyCode,
         venue: data.venue || null,
         photoUri,
         rating: data.rating || null,

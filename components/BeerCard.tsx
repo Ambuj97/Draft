@@ -1,6 +1,6 @@
 import React from "react";
 import { View, StyleSheet, Image } from "react-native";
-import { getLocales } from "expo-localization";
+import { useCurrency } from "@/services/currency";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
 import { Tag } from "@/components/ui/Tag";
@@ -16,7 +16,7 @@ interface BeerCardProps {
 /** One entry in the Cellar: photo, name, brewery, and metadata tags. */
 export function BeerCard({ beer, onPress }: BeerCardProps) {
   const { colors } = useTheme();
-  const currency = getLocales()[0]?.currencySymbol || "£";
+  const { symbol: currency } = useCurrency();
 
   return (
     <Card onPress={onPress} style={{ marginHorizontal: 4 }}>

@@ -2,7 +2,6 @@ import React, { useState, useCallback } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { useFocusEffect } from "expo-router";
 import * as Location from "expo-location";
-import { getLocales } from "expo-localization";
 import { desc } from "drizzle-orm";
 import { Screen } from "@/components/ui/Screen";
 import { Text } from "@/components/ui/Text";
@@ -12,6 +11,7 @@ import { PostComposer } from "@/components/PostComposer";
 import { useDatabase } from "@/db/provider";
 import { threads, Thread } from "@/db/schema";
 import { useTheme } from "@/components/ui/ThemeContext";
+import { useCurrency } from "@/services/currency";
 import { space, radius, fonts } from "@/constants/theme";
 
 type FeedTab = "zone" | "live" | "price" | "global";
@@ -103,7 +103,7 @@ export default function TaproomScreen() {
   const [showComposer, setShowComposer] = useState(false);
   const [seeded, setSeeded] = useState(false);
   const [localCity, setLocalCity] = useState("Local Zone");
-  const [currencySymbol] = useState(() => getLocales()[0]?.currencySymbol || "£");
+  const { symbol: currencySymbol } = useCurrency();
 
   useFocusEffect(
     useCallback(() => {

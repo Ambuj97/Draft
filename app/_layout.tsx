@@ -25,6 +25,7 @@ import { palette, fonts } from "@/constants/theme";
 import { DatabaseProvider } from "@/db/provider";
 import { SessionProvider as GpsSessionProvider } from "@/services/session";
 import { AuthProvider, useAuth } from "@/services/auth";
+import { CurrencyProvider } from "@/services/currency";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -97,32 +98,34 @@ function RootLayoutNav() {
   return (
     <DatabaseProvider>
       <GpsSessionProvider>
-        <ThemeProvider value={navTheme}>
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: palette.paper },
-            }}
-          >
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="login" options={{ animation: "fade" }} />
-            <Stack.Screen
-              name="modal"
-              options={{
-                presentation: "modal",
-                headerShown: true,
-                headerTitle: "About Draft",
-                headerTintColor: palette.ink,
-                headerStyle: { backgroundColor: palette.paper },
-                headerTitleStyle: {
-                  fontFamily: fonts.display,
-                  fontSize: 17,
-                },
-                headerShadowVisible: false,
+        <CurrencyProvider>
+          <ThemeProvider value={navTheme}>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: palette.paper },
               }}
-            />
-          </Stack>
-        </ThemeProvider>
+            >
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="login" options={{ animation: "fade" }} />
+              <Stack.Screen
+                name="modal"
+                options={{
+                  presentation: "modal",
+                  headerShown: true,
+                  headerTitle: "About Draft",
+                  headerTintColor: palette.ink,
+                  headerStyle: { backgroundColor: palette.paper },
+                  headerTitleStyle: {
+                    fontFamily: fonts.display,
+                    fontSize: 17,
+                  },
+                  headerShadowVisible: false,
+                }}
+              />
+            </Stack>
+          </ThemeProvider>
+        </CurrencyProvider>
       </GpsSessionProvider>
     </DatabaseProvider>
   );
