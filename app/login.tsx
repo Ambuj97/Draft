@@ -2,11 +2,9 @@ import React, { useState } from "react";
 import {
   View,
   StyleSheet,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
 import { Screen } from "@/components/ui/Screen";
 import { Text } from "@/components/ui/Text";
 import { Field } from "@/components/ui/Field";
@@ -14,25 +12,27 @@ import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/services/auth";
 import { space } from "@/constants/theme";
 
-export default function LoginScreen() {
-  const [email, setEmail] = useState("");
-  const [handle, setHandle] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const { signIn } = useAuth();
-  const router = useRouter();
+const HANDLE_RE = /^[a-zA-Z0-9_]{2,20}$/;
 
-  const handleLogin = async () => {
-    if (!email.trim() || !handle.trim()) {
-      Alert.alert("Missing details", "Enter both an email and a handle.");
+export default function LoginScreen() {
+  const { signIn } = useAuth();
+  const [handle, setHandle] = useState("");
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const submit = async () => {
+    const clean = handle.trim().replace(/^@+/, "");
+    if (!HANDLE_RE.test(clean)) {
+      setError("2–20 letters, numbers, or underscores.");
       return;
     }
-
+    setError(null);
     setIsSubmitting(true);
     try {
-      await signIn(email.trim(), handle.trim());
-      router.replace("/(tabs)");
-    } catch (err) {
-      Alert.alert("Couldn't sign in", String(err));
+      // No navigation here — the auth guard in _layout swaps screens once
+      // the account is stored.
+      await signIn(clean, email);
     } finally {
       setIsSubmitting(false);
     }
@@ -64,26 +64,35 @@ export default function LoginScreen() {
 
           <View style={styles.form}>
             <Field
-              label="Email"
+              label="Pick a handle"
+              placeholder="beerlover"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="username"
+              value={handle}
+              onChangeText={(t) => {
+                setHandle(t);
+                if (error) setError(null);
+              }}
+              onSubmitEditing={submit}
+              returnKeyType="go"
+              error={error ?? undefined}
+              hint={error ? undefined : "How you'll show up in the Taproom."}
+            />
+            <Field
+              label="Email (optional)"
               placeholder="you@example.com"
               autoCapitalize="none"
+              autoCorrect={false}
               keyboardType="email-address"
               autoComplete="email"
               value={email}
               onChangeText={setEmail}
-            />
-            <Field
-              label="Handle"
-              placeholder="beerlover"
-              autoCapitalize="none"
-              autoComplete="username"
-              value={handle}
-              onChangeText={setHandle}
-              hint="How you'll show up in the Taproom."
+              hint="Only for account recovery later — skip it for now if you like."
             />
             <Button
-              title={isSubmitting ? "Signing in…" : "Enter the Taproom"}
-              onPress={handleLogin}
+              title={isSubmitting ? "Setting up…" : "Enter the Taproom"}
+              onPress={submit}
               loading={isSubmitting}
               size="lg"
               fullWidth
@@ -92,7 +101,8 @@ export default function LoginScreen() {
           </View>
 
           <Text variant="caption" color="muted" align="center" style={styles.legal}>
-            You must be of legal drinking age to use Draft.
+            Your handle lives on this device. You must be of legal drinking age
+            to use Draft.
           </Text>
         </View>
       </KeyboardAvoidingView>

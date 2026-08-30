@@ -52,7 +52,8 @@ export default function ProfileScreen() {
           @{user?.handle ?? "you"}
         </Text>
         <Text variant="caption" color="muted" style={{ marginTop: 2 }}>
-          Member since 2026
+          Member since{" "}
+          {user?.createdAt ? new Date(user.createdAt).getFullYear() : 2026}
         </Text>
 
         <Divider spacing="lg" />
