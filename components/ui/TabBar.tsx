@@ -97,6 +97,7 @@ function RNLabel({
 }) {
   return (
     <RNText
+      numberOfLines={1}
       style={{
         marginTop: 4,
         fontFamily: focused ? fonts.sansBold : fonts.sansMedium,
@@ -112,11 +113,14 @@ function RNLabel({
 
 const styles = StyleSheet.create({
   wrapper: {
+    width: "100%",
+    alignSelf: "stretch",
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: space.sm,
   },
   row: {
     flexDirection: "row",
+    width: "100%",
   },
   tab: {
     flex: 1,
