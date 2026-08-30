@@ -8,10 +8,20 @@ import {
   Pressable,
   Keyboard,
 } from "react-native";
-import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+import Constants from "expo-constants";
 import { FontAwesome } from "@expo/vector-icons";
+
+// react-native-maps has no native module in Expo Go — only load it in a
+// dev/standalone build, and show a placeholder otherwise.
+const MAPS_AVAILABLE = Constants.executionEnvironment !== "storeClient";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const RNMaps = MAPS_AVAILABLE ? require("react-native-maps") : null;
+const MapView: any = RNMaps?.default;
+const Polyline: any = RNMaps?.Polyline;
+const Marker: any = RNMaps?.Marker;
+const PROVIDER_GOOGLE: any = RNMaps?.PROVIDER_GOOGLE;
 
 import { Text } from "@/components/ui/Text";
 import { Card } from "@/components/ui/Card";
@@ -69,7 +79,7 @@ function generateMockVenues(lat: number, lng: number): MockVenue[] {
  */
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<any>(null);
   const [initialRegion] = useState({
     latitude: 51.5074,
     longitude: -0.1278,
@@ -219,6 +229,32 @@ export default function MapScreen() {
   };
 
   const showRadar = !isTracking && venues.length > 0;
+
+  if (!MAPS_AVAILABLE) {
+    return (
+      <ThemeModeProvider mode="night">
+        <View style={[styles.container, styles.placeholder, { backgroundColor: c.bg }]}>
+          <StatusBar style="light" />
+          <FontAwesome name="map-o" size={44} color={c.accent} style={{ marginBottom: space.lg }} />
+          <Text variant="title" style={{ color: c.textPrimary }}>
+            Crawl
+          </Text>
+          <Text
+            variant="body"
+            color="secondary"
+            align="center"
+            style={{ marginTop: space.sm, maxWidth: 300 }}
+          >
+            The live map needs a development build — it can't run inside Expo Go.
+            Every other tab works here.
+          </Text>
+          <Text variant="caption" color="muted" align="center" style={{ marginTop: space.lg }}>
+            Coming in the EAS dev-build branch.
+          </Text>
+        </View>
+      </ThemeModeProvider>
+    );
+  }
 
   return (
     <ThemeModeProvider mode="night">
@@ -495,6 +531,11 @@ const darkMapStyle = [
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  placeholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: space.xl,
+  },
   header: {
     position: "absolute",
     left: space.xl,
