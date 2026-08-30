@@ -1,0 +1,5 @@
+# Keep generated migration files LF so Drizzle's content hash is stable
+# across machines regardless of core.autocrlf.
+db/migrations/**/*.sql text eol=lf
+db/migrations/**/*.json text eol=lf
+db/migrations/migrations.js text eol=lf
