@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -10,24 +10,14 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import Constants from "expo-constants";
 import { FontAwesome } from "@expo/vector-icons";
-
-// react-native-maps has no native module in Expo Go — only load it in a
-// dev/standalone build, and show a placeholder otherwise.
-const MAPS_AVAILABLE = Constants.executionEnvironment !== "storeClient";
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const RNMaps = MAPS_AVAILABLE ? require("react-native-maps") : null;
-const MapView: any = RNMaps?.default;
-const Polyline: any = RNMaps?.Polyline;
-const Marker: any = RNMaps?.Marker;
-const PROVIDER_GOOGLE: any = RNMaps?.PROVIDER_GOOGLE;
 
 import { Text } from "@/components/ui/Text";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
 import { ThemeModeProvider } from "@/components/ui/ThemeContext";
+import { WebMap, WebMapHandle, WebMapMarker } from "@/components/ui/WebMap";
 import { themes, space, radius, fonts, typeScale, elevation } from "@/constants/theme";
 import { useSession } from "@/services/session";
 import {
@@ -75,11 +65,12 @@ function generateMockVenues(lat: number, lng: number): MockVenue[] {
 
 /**
  * Crawl — the live map ("The Stumble Path").
- * Restyled to the night palette; the GPS engine rebuild lands in feat/crawl-tracking.
+ * Map is a Leaflet/OpenStreetMap WebView (works in Expo Go, no API key).
+ * The GPS engine rebuild lands in feat/crawl-tracking.
  */
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<WebMapHandle>(null);
   const [initialRegion] = useState({
     latitude: 51.5074,
     longitude: -0.1278,
@@ -103,6 +94,9 @@ export default function MapScreen() {
 
   const [venues, setVenues] = useState<MockVenue[]>([]);
   const [selectedVenue, setSelectedVenue] = useState<string | null>(null);
+  const [myLocation, setMyLocation] = useState<{ latitude: number; longitude: number } | null>(
+    null
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
@@ -133,8 +127,9 @@ export default function MapScreen() {
 
   // Follow current location while tracking
   useEffect(() => {
-    if (currentLocation && mapRef.current) {
-      mapRef.current.animateToRegion(
+    if (currentLocation) {
+      setMyLocation(currentLocation);
+      mapRef.current?.animateToRegion(
         {
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
@@ -145,6 +140,19 @@ export default function MapScreen() {
       );
     }
   }, [currentLocation]);
+
+  const handleMapReady = async () => {
+    const granted = await requestLocationPermission();
+    if (!granted) return;
+    const pos = await getCurrentPosition();
+    if (!pos) return;
+    setMyLocation(pos);
+    mapRef.current?.animateToRegion(
+      { latitude: pos.latitude, longitude: pos.longitude, latitudeDelta: 0.008, longitudeDelta: 0.008 },
+      800
+    );
+    setVenues(generateMockVenues(pos.latitude, pos.longitude));
+  };
 
   const handleStartStop = async () => {
     if (isTracking) {
@@ -228,128 +236,55 @@ export default function MapScreen() {
     setIsSearchFocused(false);
   };
 
+  const dismissOverlays = () => {
+    Keyboard.dismiss();
+    setIsSearchFocused(false);
+  };
+
   const showRadar = !isTracking && venues.length > 0;
 
-  if (!MAPS_AVAILABLE) {
-    return (
-      <ThemeModeProvider mode="night">
-        <View style={[styles.container, styles.placeholder, { backgroundColor: c.bg }]}>
-          <StatusBar style="light" />
-          <FontAwesome name="map-o" size={44} color={c.accent} style={{ marginBottom: space.lg }} />
-          <Text variant="title" style={{ color: c.textPrimary }}>
-            Crawl
-          </Text>
-          <Text
-            variant="body"
-            color="secondary"
-            align="center"
-            style={{ marginTop: space.sm, maxWidth: 300 }}
-          >
-            The live map needs a development build — it can't run inside Expo Go.
-            Every other tab works here.
-          </Text>
-          <Text variant="caption" color="muted" align="center" style={{ marginTop: space.lg }}>
-            Coming in the EAS dev-build branch.
-          </Text>
-        </View>
-      </ThemeModeProvider>
-    );
-  }
+  const mapMarkers = useMemo<WebMapMarker[]>(() => {
+    const list: WebMapMarker[] = [];
+    if (path.length > 0) {
+      list.push({
+        id: "__start",
+        latitude: path[0].latitude,
+        longitude: path[0].longitude,
+        kind: "start",
+      });
+    }
+    if (!isTracking) {
+      for (const v of venues) {
+        list.push({
+          id: v.id,
+          latitude: v.latitude,
+          longitude: v.longitude,
+          kind: v.id === "search-target" ? "target" : "venue",
+          selected: selectedVenue === v.id,
+        });
+      }
+    }
+    return list;
+  }, [path, isTracking, venues, selectedVenue]);
 
   return (
     <ThemeModeProvider mode="night">
       <View style={[styles.container, { backgroundColor: c.bg }]}>
         <StatusBar style="light" />
 
-        <MapView
-          ref={mapRef}
-          style={StyleSheet.absoluteFill}
-          provider={PROVIDER_GOOGLE}
-          showsUserLocation
-          showsMyLocationButton
-          customMapStyle={darkMapStyle}
-          initialRegion={initialRegion}
-          onMapReady={async () => {
-            const granted = await requestLocationPermission();
-            if (!granted) return;
-            const pos = await getCurrentPosition();
-            if (pos && mapRef.current) {
-              mapRef.current.animateToRegion(
-                {
-                  latitude: pos.latitude,
-                  longitude: pos.longitude,
-                  latitudeDelta: 0.008,
-                  longitudeDelta: 0.008,
-                },
-                800
-              );
-              setVenues(generateMockVenues(pos.latitude, pos.longitude));
-            }
-          }}
-          onPress={() => {
-            Keyboard.dismiss();
-            setIsSearchFocused(false);
-          }}
-          onPanDrag={() => {
-            Keyboard.dismiss();
-            setIsSearchFocused(false);
-          }}
-        >
-          {path.length > 1 && (
-            <Polyline
-              coordinates={path.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))}
-              strokeColor={c.accent}
-              strokeWidth={4}
-            />
-          )}
-
-          {path.length > 0 && (
-            <Marker
-              coordinate={{ latitude: path[0].latitude, longitude: path[0].longitude }}
-              title="Start"
-            >
-              <View style={[styles.startPin, { borderColor: c.accent, backgroundColor: c.surface }]}>
-                <Text style={{ fontSize: 15 }}>🏁</Text>
-              </View>
-            </Marker>
-          )}
-
-          {!isTracking &&
-            venues.map((v) => {
-              if (v.id === "search-target") {
-                return (
-                  <Marker
-                    key={v.id}
-                    coordinate={{ latitude: v.latitude, longitude: v.longitude }}
-                    onPress={() => setSelectedVenue(v.id)}
-                    title={v.name}
-                    anchor={{ x: 0.5, y: 1 }}
-                    style={{ zIndex: 999 }}
-                  >
-                    <FontAwesome name="map-marker" size={40} color={c.accent} />
-                  </Marker>
-                );
-              }
-              const selected = selectedVenue === v.id;
-              return (
-                <Marker
-                  key={v.id}
-                  coordinate={{ latitude: v.latitude, longitude: v.longitude }}
-                  onPress={() => setSelectedVenue(v.id)}
-                  style={{ zIndex: selected ? 10 : 1 }}
-                >
-                  <View
-                    style={[
-                      styles.venuePin,
-                      { backgroundColor: selected ? c.accent : c.surface, borderColor: c.accent },
-                    ]}
-                  >
-                    <FontAwesome name="beer" size={13} color={selected ? c.accentText : c.accent} />
-                  </View>
-                </Marker>
-              );
-            })}
-        </MapView>
+        <View style={StyleSheet.absoluteFill}>
+          <WebMap
+            ref={mapRef}
+            initialRegion={initialRegion}
+            path={path}
+            markers={mapMarkers}
+            userLocation={myLocation}
+            accent={c.accent}
+            onReady={handleMapReady}
+            onPress={dismissOverlays}
+            onMarkerPress={setSelectedVenue}
+          />
+        </View>
 
         {/* Live stats */}
         {isTracking && (
@@ -468,7 +403,18 @@ export default function MapScreen() {
                     key={v.id}
                     accent={selectedVenue === v.id}
                     style={styles.radarCard}
-                    onPress={() => setSelectedVenue(v.id)}
+                    onPress={() => {
+                      setSelectedVenue(v.id);
+                      mapRef.current?.animateToRegion(
+                        {
+                          latitude: v.latitude,
+                          longitude: v.longitude,
+                          latitudeDelta: 0.006,
+                          longitudeDelta: 0.006,
+                        },
+                        600
+                      );
+                    }}
                   >
                     <Text variant="bodyStrong" numberOfLines={1}>
                       {v.name}
@@ -517,25 +463,8 @@ export default function MapScreen() {
   );
 }
 
-const darkMapStyle = [
-  { elementType: "geometry", stylers: [{ color: "#1b1712" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#1b1712" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#8a8275" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2b241b" }] },
-  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#3a3227" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#14110d" }] },
-  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#1b1712" }] },
-  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#1e2417" }] },
-  { featureType: "transit", elementType: "geometry", stylers: [{ color: "#1b1712" }] },
-];
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  placeholder: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: space.xl,
-  },
   header: {
     position: "absolute",
     left: space.xl,
@@ -602,22 +531,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   pulseDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#E4796F" },
-  startPin: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-  },
-  venuePin: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-  },
   radarCard: { width: 210 },
   errorToast: {
     position: "absolute",
