@@ -1,7 +1,7 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { ThemeProvider, DefaultTheme } from "@react-navigation/native";
 import { useFonts } from "expo-font";
-import { Stack, useRouter } from "expo-router";
+import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import "react-native-reanimated";
@@ -85,14 +85,9 @@ export default function RootLayout() {
 
 function RootLayoutNav() {
   const { user, isLoading } = useAuth();
-  const router = useRouter();
 
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.replace("/login");
-    }
-  }, [user, isLoading]);
-
+  // Hold on the splash until we know whether there's a stored account, so the
+  // guards below don't flash the login screen at a signed-in user.
   if (isLoading) return null;
 
   return (
@@ -106,23 +101,28 @@ function RootLayoutNav() {
                 contentStyle: { backgroundColor: palette.paper },
               }}
             >
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="login" options={{ animation: "fade" }} />
-              <Stack.Screen
-                name="modal"
-                options={{
-                  presentation: "modal",
-                  headerShown: true,
-                  headerTitle: "About Draft",
-                  headerTintColor: palette.ink,
-                  headerStyle: { backgroundColor: palette.paper },
-                  headerTitleStyle: {
-                    fontFamily: fonts.display,
-                    fontSize: 17,
-                  },
-                  headerShadowVisible: false,
-                }}
-              />
+              <Stack.Protected guard={!!user}>
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen
+                  name="modal"
+                  options={{
+                    presentation: "modal",
+                    headerShown: true,
+                    headerTitle: "About Draft",
+                    headerTintColor: palette.ink,
+                    headerStyle: { backgroundColor: palette.paper },
+                    headerTitleStyle: {
+                      fontFamily: fonts.display,
+                      fontSize: 17,
+                    },
+                    headerShadowVisible: false,
+                  }}
+                />
+              </Stack.Protected>
+
+              <Stack.Protected guard={!user}>
+                <Stack.Screen name="login" options={{ animation: "fade" }} />
+              </Stack.Protected>
             </Stack>
           </ThemeProvider>
         </CurrencyProvider>
