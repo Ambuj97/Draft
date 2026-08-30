@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { themes, space, fonts } from "@/constants/theme";
+import { themes, space, fonts, elevation } from "@/constants/theme";
 
 const TAB_CONFIG: Record<
   string,
@@ -24,6 +24,14 @@ const TAB_CONFIG: Record<
 
 const BAR_HEIGHT = 58;
 
+/**
+ * Flat editorial tab bar pinned to the bottom edge: foam surface, hairline
+ * top rule, a short amber marker over the active tab.
+ *
+ * Tabs are laid out with explicit pixel widths (screen width / count) rather
+ * than `flex: 1` — the flex shorthand doesn't distribute reliably inside this
+ * absolutely-positioned row on the New Architecture.
+ */
 export function DraftTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -32,32 +40,19 @@ export function DraftTabBar({ state, navigation }: BottomTabBarProps) {
   const routes = state.routes;
   const tabWidth = width / routes.length;
 
-  // eslint-disable-next-line no-console
-  console.log(
-    "[DraftTabBar] v3-debug routes=",
-    routes.map((r) => r.name),
-    "width=",
-    width,
-    "tabWidth=",
-    tabWidth
-  );
-
   return (
     <View
-      style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 0,
-        width,
-        height: BAR_HEIGHT + insets.bottom,
-        paddingBottom: insets.bottom,
-        paddingTop: space.sm,
-        flexDirection: "row",
-        backgroundColor: c.surface,
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: c.border,
-      }}
+      style={[
+        styles.wrapper,
+        elevation.raised,
+        {
+          width,
+          height: BAR_HEIGHT + insets.bottom,
+          paddingBottom: insets.bottom,
+          backgroundColor: c.surface,
+          borderTopColor: c.border,
+        },
+      ]}
     >
       {routes.map((route, index) => {
         const isFocused = state.index === index;
@@ -83,35 +78,25 @@ export function DraftTabBar({ state, navigation }: BottomTabBarProps) {
             accessibilityRole="button"
             accessibilityState={isFocused ? { selected: true } : {}}
             onPress={onPress}
-            style={{
-              width: tabWidth,
-              alignItems: "center",
-              justifyContent: "flex-start",
-              // TEMP debug border to reveal tab bounds in screenshots
-              borderRightWidth: index < routes.length - 1 ? StyleSheet.hairlineWidth : 0,
-              borderRightColor: c.border,
-            }}
+            style={({ pressed }) => [
+              styles.tab,
+              { width: tabWidth },
+              pressed ? { opacity: 0.55 } : null,
+            ]}
           >
             <View
-              style={{
-                width: 18,
-                height: 2,
-                borderRadius: 1,
-                marginBottom: 6,
-                backgroundColor: isFocused ? c.accent : "transparent",
-              }}
+              style={[
+                styles.marker,
+                { backgroundColor: isFocused ? c.accent : "transparent" },
+              ]}
             />
             <FontAwesome name={cfg.icon} size={19} color={tint} />
             <RNText
               numberOfLines={1}
-              style={{
-                marginTop: 4,
-                fontSize: 10,
-                letterSpacing: 0.5,
-                textAlign: "center",
-                color: tint,
-                fontFamily: isFocused ? fonts.sansBold : fonts.sansMedium,
-              }}
+              style={[
+                styles.label,
+                { color: tint, fontFamily: isFocused ? fonts.sansBold : fonts.sansMedium },
+              ]}
             >
               {cfg.label.toUpperCase()}
             </RNText>
@@ -121,3 +106,32 @@ export function DraftTabBar({ state, navigation }: BottomTabBarProps) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  wrapper: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: "row",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: space.sm,
+  },
+  tab: {
+    alignItems: "center",
+    justifyContent: "flex-start",
+    paddingHorizontal: 4,
+  },
+  marker: {
+    width: 18,
+    height: 2,
+    borderRadius: 1,
+    marginBottom: 6,
+  },
+  label: {
+    marginTop: 4,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textAlign: "center",
+  },
+});
