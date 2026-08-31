@@ -16,8 +16,9 @@ const TAB_CONFIG: Record<
   string,
   { icon: React.ComponentProps<typeof FontAwesome>["name"]; label: string }
 > = {
-  index: { icon: "map-o", label: "Crawl" },
+  home: { icon: "home", label: "Home" },
   taproom: { icon: "comments-o", label: "Taproom" },
+  index: { icon: "map-o", label: "Crawl" },
   cellar: { icon: "archive", label: "Cellar" },
   profile: { icon: "user-o", label: "You" },
 };

@@ -118,6 +118,21 @@ function RootLayoutNav() {
                     headerShadowVisible: false,
                   }}
                 />
+                <Stack.Screen
+                  name="notifications"
+                  options={{
+                    presentation: "modal",
+                    headerShown: true,
+                    headerTitle: "Notifications",
+                    headerTintColor: palette.ink,
+                    headerStyle: { backgroundColor: palette.paper },
+                    headerTitleStyle: {
+                      fontFamily: fonts.display,
+                      fontSize: 17,
+                    },
+                    headerShadowVisible: false,
+                  }}
+                />
               </Stack.Protected>
 
               <Stack.Protected guard={!user}>
